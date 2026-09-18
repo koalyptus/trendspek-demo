@@ -1,5 +1,6 @@
 import { createRxDatabase, addRxPlugin } from 'rxdb'
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie'
+import { wrappedValidateAjvStorage } from 'rxdb/plugins/validate-ajv'
 import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode'
 import { RxDBUpdatePlugin } from 'rxdb/plugins/update'
 import type { RxCollection, RxDatabase } from 'rxdb'
@@ -36,9 +37,14 @@ export async function getDatabase(): Promise<TrendspekDatabase> {
 }
 
 async function initDatabase(): Promise<TrendspekDatabase> {
+  const baseStorage = getRxStorageDexie()
+  const storage = import.meta.env?.DEV
+    ? wrappedValidateAjvStorage({ storage: baseStorage })
+    : baseStorage
+
   const db = await createRxDatabase<TrendspekDatabaseCollections>({
     name: 'trendspek_db_v2', // v2 to ensure clean update for real building
-    storage: getRxStorageDexie(),
+    storage,
     ignoreDuplicate: true
   })
 
