@@ -37,7 +37,7 @@ export async function getDatabase(): Promise<TrendspekDatabase> {
 
 async function initDatabase(): Promise<TrendspekDatabase> {
   const db = await createRxDatabase<TrendspekDatabaseCollections>({
-    name: 'trendspek_db_v1',
+    name: 'trendspek_db_v2', // v2 to ensure clean update for real building
     storage: getRxStorageDexie(),
     ignoreDuplicate: true
   })
@@ -53,20 +53,22 @@ async function initDatabase(): Promise<TrendspekDatabase> {
   })
 
   // Seed default templates if not present
-  const existingTemplates = await db.templates.find().exec()
-  if (existingTemplates.length === 0) {
-    await db.templates.bulkInsert(defaultTemplates)
-    console.log('[RxDB] Seeded default inspection templates')
+  for (const tpl of defaultTemplates) {
+    const existing = await db.templates.findOne(tpl.id).exec()
+    if (!existing) {
+      await db.templates.insert(tpl)
+    }
   }
 
-  // Seed initial demo annotations if empty
-  const existingAnnotations = await db.annotations.find().exec()
-  if (existingAnnotations.length === 0) {
-    await db.annotations.bulkInsert(initialDemoAnnotations)
-    console.log('[RxDB] Seeded initial demo annotations')
+  // Seed demo annotations if not present
+  for (const annot of initialDemoAnnotations) {
+    const existing = await db.annotations.findOne(annot.id).exec()
+    if (!existing) {
+      await db.annotations.insert(annot)
+    }
   }
 
-  console.log('[RxDB] Local-first IndexedDB database initialized successfully')
+  console.log('[RxDB] Local-first IndexedDB database initialized with real building assets')
   return db
 }
 

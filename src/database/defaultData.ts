@@ -2,29 +2,30 @@ import type { AnnotationTemplate, DefectAnnotation, InspectionAsset } from '@/ty
 
 export const availableAssets: InspectionAsset[] = [
   {
-    id: 'asset-tower-01',
-    name: 'Tower 01 - Commercial High-Rise',
-    type: 'procedural_tower',
-    locationName: 'Sydney Harbour Precinct',
-    coordinates: { lon: 151.2093, lat: -33.8688, height: 0 },
-    description: 'Custom procedural 24-story commercial office tower with curtain wall facades, podium, and rooftop plant equipment.'
+    id: 'asset-real-building-01',
+    name: 'Real Architectural Facility (Textured 3D Model)',
+    type: 'gltf_building',
+    locationName: 'Heritage & Commercial Precinct',
+    coordinates: { lon: 151.2093, lat: -33.8688, height: 18 },
+    modelUrl: '/models/building_real.glb',
+    description: 'High-detail textured architectural digital twin featuring multi-level facades, balconies, structural beams, stairs, and roof plant.'
   },
   {
-    id: 'asset-real-building-02',
-    name: 'Real 3D Tiles Facility (Batched Architecture)',
+    id: 'asset-tower-02',
+    name: 'Tower 02 - Commercial High-Rise (Procedural BIM)',
+    type: 'procedural_tower',
+    locationName: 'Sydney Harbour Business District',
+    coordinates: { lon: 151.2093, lat: -33.8688, height: 0 },
+    description: 'Procedural 24-story commercial office tower with curtain wall facades, podium, and rooftop plant equipment.'
+  },
+  {
+    id: 'asset-tileset-03',
+    name: 'Campus Facility (Batched 3D Tileset)',
     type: 'tileset_building',
-    locationName: 'Exton Campus Complex',
+    locationName: 'Exton Regional Campus',
     coordinates: { lon: -75.615, lat: 40.041, height: 20 },
     tilesetUrl: '/sample-tileset/tileset.json',
-    description: 'Real photorealistic 3D Tileset building complex featuring brick facades, pitched roof sections, and surrounding site geometry.'
-  },
-  {
-    id: 'asset-city-osm-03',
-    name: 'Real Urban Digital Twin (Sydney CBD & Barangaroo)',
-    type: 'osm_city',
-    locationName: 'Sydney Central Business District',
-    coordinates: { lon: 151.2045, lat: -33.8638, height: 180 },
-    description: 'Global 3D OpenStreetMap building geometries and heights streaming real urban structures.'
+    description: 'Batched 3D Tileset building complex featuring brick facades, pitched roof sections, and site terrain.'
   }
 ]
 
@@ -202,14 +203,77 @@ export const defaultTemplates: AnnotationTemplate[] = [
   }
 ]
 
-// Sample annotations situated across both demo assets
 export const initialDemoAnnotations: DefectAnnotation[] = [
-  // --- Asset 1: Procedural Commercial High-Rise ---
+  // --- Asset 1: Real Architectural Facility (Textured 3D Model) ---
   {
-    id: 'defect-spall-001',
-    assetId: 'asset-tower-01',
+    id: 'defect-real-balcony-01',
+    assetId: 'asset-real-building-01',
+    title: 'Reinforced Concrete Spalling - Level 2 Balcony Soffit',
+    description: 'Delamination of concrete cover under balcony slab with exposed oxidized reinforcement bars. High drop hazard over entrance walkway.',
+    severity: 'critical',
+    status: 'open',
+    positionXyz: [-4646062.3, 2553204.0, -3534384.8],
+    templateId: 'tpl-facade-spalling',
+    templateValues: {
+      defectClassification: 'Active Concrete Spall',
+      defectDepthMm: 35,
+      defectAreaM2: 0.75,
+      dropHazard: true,
+      urgencyLevel: 'Priority 1 - Urgent (< 14 days)',
+      remedialAction: 'Install immediate pedestrian protective canopy. Mechanical concrete breakout to 25mm behind rebar, apply zinc sacrificial anodes and structural repair mortar.'
+    },
+    author: 'Senior Inspector J. Vance',
+    createdAt: new Date(Date.now() - 3600000 * 24 * 1).toISOString(),
+    updatedAt: new Date(Date.now() - 3600000 * 3).toISOString()
+  },
+  {
+    id: 'defect-real-wall-02',
+    assetId: 'asset-real-building-01',
+    title: 'Protective Membrane Delamination - West Brick Façade',
+    description: 'Thermal blistering and peeling of external waterproof membrane coating along structural column interface.',
+    severity: 'high',
+    status: 'in_progress',
+    positionXyz: [-4646076.2, 2553226.4, -3534382.9],
+    templateId: 'tpl-coating-failure',
+    templateValues: {
+      coatingType: 'Elastomeric Waterproof Membrane',
+      failureMode: 'Blistering & Delamination',
+      waterIngressRisk: true,
+      approximateAreaM2: 2.4,
+      remedialAction: 'High pressure wash, strip failed sections, apply vapor-permeable primer and 2-coat polyurethane barrier.'
+    },
+    author: 'Façade Specialist R. Torres',
+    createdAt: new Date(Date.now() - 3600000 * 24 * 3).toISOString(),
+    updatedAt: new Date(Date.now() - 3600000 * 12).toISOString()
+  },
+  {
+    id: 'defect-real-roof-03',
+    assetId: 'asset-real-building-01',
+    title: 'Structural Parapet Shear Crack - Rooftop Plant Level',
+    description: 'Continuous diagonal crack propagating through parapet brickwork adjacent to mechanical rooftop chiller mounting.',
+    severity: 'medium',
+    status: 'open',
+    positionXyz: [-4646091.1, 2553226.1, -3534399.5],
+    templateId: 'tpl-crack-monitoring',
+    templateValues: {
+      crackType: 'Moderate Structural (0.5mm - 2.5mm)',
+      crackWidthMm: 2.4,
+      crackLengthM: 1.6,
+      gaugeInstalled: true,
+      monitoringInterval: 'Monthly',
+      remedialAction: 'Calibrated crack gauge monitoring active. Low pressure epoxy structural injection scheduled.'
+    },
+    author: 'Lead Structural Eng. M. Chen',
+    createdAt: new Date(Date.now() - 3600000 * 24 * 5).toISOString(),
+    updatedAt: new Date(Date.now() - 3600000 * 18).toISOString()
+  },
+
+  // --- Asset 2: Procedural Commercial High-Rise ---
+  {
+    id: 'defect-tower-spall-001',
+    assetId: 'asset-tower-02',
     title: 'Spalling & Exposed Rebar - Level 8 East Façade',
-    description: 'Severe concrete delamination with visible rust staining and loose aggregate. High drop risk over pedestrian walkway.',
+    description: 'Severe concrete delamination with visible rust staining and loose aggregate.',
     severity: 'critical',
     status: 'open',
     positionXyz: [-4492850.5, 2673050.2, -3678500.0],
@@ -227,8 +291,8 @@ export const initialDemoAnnotations: DefectAnnotation[] = [
     updatedAt: new Date(Date.now() - 3600000 * 5).toISOString()
   },
   {
-    id: 'defect-crack-002',
-    assetId: 'asset-tower-01',
+    id: 'defect-tower-crack-002',
+    assetId: 'asset-tower-02',
     title: 'Shear Crack along Parapet Beam - Roof Level',
     description: 'Continuous diagonal crack running from corner column junction across parapet beam.',
     severity: 'high',
@@ -241,94 +305,10 @@ export const initialDemoAnnotations: DefectAnnotation[] = [
       crackLengthM: 2.4,
       gaugeInstalled: true,
       monitoringInterval: 'Bi-Weekly',
-      remedialAction: 'Monitor with optical tell-tale. Low pressure epoxy injection planned for next maintenance cycle.'
+      remedialAction: 'Monitor with optical tell-tale.'
     },
     author: 'Lead Structural Eng. M. Chen',
     createdAt: new Date(Date.now() - 3600000 * 24 * 5).toISOString(),
     updatedAt: new Date(Date.now() - 3600000 * 18).toISOString()
-  },
-  {
-    id: 'defect-coat-003',
-    assetId: 'asset-tower-01',
-    title: 'Waterproofing Membrane Blistering - Level 4 Balcony',
-    description: 'Localized bubbling and peeling of UV protective topcoat with underlying moisture entrapment.',
-    severity: 'medium',
-    status: 'open',
-    positionXyz: [-4492865.0, 2673040.0, -3678540.0],
-    templateId: 'tpl-coating-failure',
-    templateValues: {
-      coatingType: 'Elastomeric Waterproof Membrane',
-      failureMode: 'Blistering & Delamination',
-      waterIngressRisk: true,
-      approximateAreaM2: 2.1,
-      remedialAction: 'Core moisture testing, peel back failed section, re-prime and apply 2 coats of elastomeric barrier.'
-    },
-    author: 'Façade Specialist R. Torres',
-    createdAt: new Date(Date.now() - 3600000 * 24 * 7).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 48).toISOString()
-  },
-
-  // --- Asset 2: Real-World 3D Tiles Building Complex ---
-  {
-    id: 'defect-real-brick-01',
-    assetId: 'asset-real-building-02',
-    title: 'Mortar Joint Leaching & Efflorescence - North Wing Wall',
-    description: 'Extensive white mineral deposits and eroded bedding mortar along ground level brick courses.',
-    severity: 'high',
-    status: 'open',
-    positionXyz: [1214800.8, -4736484.3, 4081478.3],
-    templateId: 'tpl-facade-spalling',
-    templateValues: {
-      defectClassification: 'Efflorescence & Salt Leaching',
-      defectDepthMm: 15,
-      defectAreaM2: 1.8,
-      dropHazard: false,
-      urgencyLevel: 'Priority 2 - Scheduled (< 60 days)',
-      remedialAction: 'Rake out defective mortar to 20mm depth, neutral salt wash, and re-point with lime-based mortar.'
-    },
-    author: 'Senior Inspector J. Vance',
-    createdAt: new Date(Date.now() - 3600000 * 24 * 1).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 3).toISOString()
-  },
-  {
-    id: 'defect-real-roof-02',
-    assetId: 'asset-real-building-02',
-    title: 'Roof Flashing Separation - Pitched Gable Junction',
-    description: 'Corroded lead flashing pulled away from parapet masonry, creating open ingress pathway into roof void.',
-    severity: 'critical',
-    status: 'open',
-    positionXyz: [1214811.9, -4736493.3, 4081488.0],
-    templateId: 'tpl-coating-failure',
-    templateValues: {
-      coatingType: 'Galvanized Structural Steel',
-      failureMode: 'Substrate Rust Bleed',
-      waterIngressRisk: true,
-      approximateAreaM2: 0.8,
-      remedialAction: 'Replace damaged flashing with code-compliant zinc-coated metal flashing and seal with high-grade polyurethane sealant.'
-    },
-    author: 'Roofing Consultant K. Adams',
-    createdAt: new Date(Date.now() - 3600000 * 24 * 3).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 12).toISOString()
-  },
-  {
-    id: 'defect-real-crack-03',
-    assetId: 'asset-real-building-02',
-    title: 'Foundation Step-Joint Crack - West Elevation',
-    description: 'Diagonal step crack following mortar line through 6 courses of brickwork above foundation footing.',
-    severity: 'medium',
-    status: 'in_progress',
-    positionXyz: [1214791.7, -4736483.2, 4081490.0],
-    templateId: 'tpl-crack-monitoring',
-    templateValues: {
-      crackType: 'Step-joint Mortar Separation',
-      crackWidthMm: 1.8,
-      crackLengthM: 1.2,
-      gaugeInstalled: true,
-      monitoringInterval: 'Monthly',
-      remedialAction: 'Calibrated crack monitor affixed. Underpinning review recommended if movement continues past next quarter.'
-    },
-    author: 'Lead Structural Eng. M. Chen',
-    createdAt: new Date(Date.now() - 3600000 * 24 * 4).toISOString(),
-    updatedAt: new Date(Date.now() - 3600000 * 8).toISOString()
   }
 ]

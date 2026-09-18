@@ -41,9 +41,10 @@ export interface DefectAnnotation {
 export interface InspectionAsset {
   id: string
   name: string
-  type: 'procedural_tower' | 'tileset_building' | 'osm_city'
+  type: 'gltf_building' | 'procedural_tower' | 'tileset_building' | 'osm_city'
   locationName: string
   coordinates: { lon: number; lat: number; height: number }
+  modelUrl?: string
   tilesetUrl?: string
   description: string
 }

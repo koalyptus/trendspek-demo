@@ -112,9 +112,9 @@ let handler: Cesium.ScreenSpaceEventHandler | null = null
 let markerEntities: Map<string, Cesium.Entity> = new Map()
 
 // Scene elements
+let realBuildingEntity: Cesium.Entity | null = null
 const proceduralEntities: Cesium.Entity[] = []
 let activeTileset: Cesium.Cesium3DTileset | null = null
-let osmBuildingsTileset: Cesium.Cesium3DTileset | null = null
 
 // UI Overlays
 const wireframeEnabled = ref(false)
@@ -186,16 +186,19 @@ onMounted(async () => {
     creditContainer.style.display = 'none'
   }
 
-  // 2. Build our procedural 3D High-Rise Tower (Asset 1)
-  createBuildingDemoModel(viewer)
+  // 2. Initialize the Real Textured Architectural Building Model
+  createRealBuildingModel(viewer)
 
-  // 3. Load initial asset model (based on currentAssetId)
+  // 3. Initialize the Procedural High-Rise Tower
+  createProceduralTowerModel(viewer)
+
+  // 4. Load initial active asset (defaults to real architectural building)
   await loadAssetModel(uiStore.currentAssetId)
 
-  // 4. Sync initial annotations from RxDB onto the 3D scene
+  // 5. Sync initial annotations from RxDB onto the 3D scene
   syncAnnotationsToScene(props.annotations)
 
-  // 5. Setup Screen Space Event Handler for interaction & depth picking
+  // 6. Setup Screen Space Event Handler for interaction & depth picking
   setupEventHandlers(viewer)
 })
 
@@ -211,17 +214,40 @@ onBeforeUnmount(() => {
 })
 
 /**
- * Creates the procedural architectural demo building structure directly in Cesium
- * (commercial high-rise tower with podium, facade panels, floor slabs, and rooftop plant equipment).
+ * Loads the Real-World Architectural Building Model (building_real.glb)
  */
-function createBuildingDemoModel(v: Cesium.Viewer) {
+function createRealBuildingModel(v: Cesium.Viewer) {
   const origin = uiStore.availableAssets[0].coordinates
+  const position = Cesium.Cartesian3.fromDegrees(origin.lon, origin.lat, 24.0)
+  const hpr = new Cesium.HeadingPitchRoll(Cesium.Math.toRadians(15.0), 0, 0)
+  const orientation = Cesium.Transforms.headingPitchRollQuaternion(position, hpr)
+
+  realBuildingEntity = v.entities.add({
+    name: 'Real Architectural Building Facility',
+    position: position,
+    orientation: orientation,
+    model: {
+      uri: '/models/building_real.glb',
+      scale: 0.12,
+      minimumPixelSize: 128,
+      maximumScale: 20000,
+      shadows: Cesium.ShadowMode.ENABLED
+    }
+  })
+}
+
+/**
+ * Creates the alternative procedural architectural commercial tower
+ */
+function createProceduralTowerModel(v: Cesium.Viewer) {
+  const origin = uiStore.availableAssets[1].coordinates
   const originCartesian = Cesium.Cartesian3.fromDegrees(origin.lon, origin.lat, origin.height)
 
   // Plinth / Plaza Base
   const base = v.entities.add({
     name: 'Inspection Asset Base Plinth',
     position: originCartesian,
+    show: false,
     box: {
       dimensions: new Cesium.Cartesian3(90.0, 70.0, 4.0),
       material: Cesium.Color.fromCssColorString('#1E293B')
@@ -234,6 +260,7 @@ function createBuildingDemoModel(v: Cesium.Viewer) {
   const podium = v.entities.add({
     name: 'Building Podium (L1-L3)',
     position: podiumPos,
+    show: false,
     box: {
       dimensions: new Cesium.Cartesian3(70.0, 50.0, 20.0),
       material: Cesium.Color.fromCssColorString('#24324E')
@@ -247,6 +274,7 @@ function createBuildingDemoModel(v: Cesium.Viewer) {
   const tower = v.entities.add({
     name: 'Tower Primary Structure (L4-L24)',
     position: towerPos,
+    show: false,
     box: {
       dimensions: new Cesium.Cartesian3(46.0, 36.0, towerHeight),
       material: Cesium.Color.fromCssColorString('#1B273E')
@@ -254,7 +282,7 @@ function createBuildingDemoModel(v: Cesium.Viewer) {
   })
   proceduralEntities.push(tower)
 
-  // Glass Curtain Wall Facade Ribs (Trendspek-style CAD inspection view)
+  // Glass Curtain Wall Facade Ribs
   const numFloors = 18
   for (let i = 0; i < numFloors; i++) {
     const floorZ = 24.0 + i * 5.0
@@ -263,6 +291,7 @@ function createBuildingDemoModel(v: Cesium.Viewer) {
     const slab = v.entities.add({
       name: `Floor Slab L${i + 4}`,
       position: slabPos,
+      show: false,
       box: {
         dimensions: new Cesium.Cartesian3(47.2, 37.2, 0.6),
         material: Cesium.Color.fromCssColorString('#38BDF8').withAlpha(0.7)
@@ -276,46 +305,41 @@ function createBuildingDemoModel(v: Cesium.Viewer) {
   const roof = v.entities.add({
     name: 'Rooftop Mechanical Plant & Parapet',
     position: roofPos,
+    show: false,
     box: {
       dimensions: new Cesium.Cartesian3(28.0, 22.0, 12.0),
       material: Cesium.Color.fromCssColorString('#0F172A')
     }
   })
   proceduralEntities.push(roof)
-
-  // Exterior Elevator / Core Column Accent
-  const corePos = Cesium.Cartesian3.fromDegrees(origin.lon + 0.00015, origin.lat, 22.0 + towerHeight / 2)
-  const core = v.entities.add({
-    name: 'Service Core Spine',
-    position: corePos,
-    box: {
-      dimensions: new Cesium.Cartesian3(8.0, 14.0, towerHeight + 16.0),
-      material: Cesium.Color.fromCssColorString('#00D2B5').withAlpha(0.5)
-    }
-  })
-  proceduralEntities.push(core)
 }
 
 /**
- * Loads or toggles between procedural tower, real-world 3D Tileset building, or OSM City buildings
+ * Loads or toggles between real architectural building model, procedural tower, or 3D Tileset
  */
 async function loadAssetModel(assetId: string) {
   if (!viewer) return
 
-  // 1. Procedural Tower Entities
-  const isProcedural = assetId === 'asset-tower-01'
+  // 1. Real Architectural Building Model (Primary)
+  const isRealBuilding = assetId === 'asset-real-building-01'
+  if (realBuildingEntity) {
+    realBuildingEntity.show = isRealBuilding
+  }
+
+  // 2. Procedural Tower Entities
+  const isProcedural = assetId === 'asset-tower-02'
   for (const ent of proceduralEntities) {
     ent.show = isProcedural
   }
 
-  // 2. Real-World 3D Tileset Facility
-  if (assetId === 'asset-real-building-02') {
+  // 3. Batched 3D Tileset Building
+  if (assetId === 'asset-tileset-03') {
     if (!activeTileset) {
       try {
         activeTileset = await Cesium.Cesium3DTileset.fromUrl('/sample-tileset/tileset.json')
         viewer.scene.primitives.add(activeTileset)
       } catch (err) {
-        console.error('Failed to load local sample 3D tileset:', err)
+        console.error('Failed to load sample 3D tileset:', err)
       }
     }
     if (activeTileset) {
@@ -325,24 +349,7 @@ async function loadAssetModel(assetId: string) {
     activeTileset.show = false
   }
 
-  // 3. OSM City Buildings (Sydney CBD)
-  if (assetId === 'asset-city-osm-03') {
-    if (!osmBuildingsTileset) {
-      try {
-        osmBuildingsTileset = await Cesium.createOsmBuildingsAsync()
-        viewer.scene.primitives.add(osmBuildingsTileset)
-      } catch (err) {
-        console.warn('OSM Buildings requires Cesium Ion token or online access:', err)
-      }
-    }
-    if (osmBuildingsTileset) {
-      osmBuildingsTileset.show = true
-    }
-  } else if (osmBuildingsTileset) {
-    osmBuildingsTileset.show = false
-  }
-
-  // 4. Focus camera on the chosen building
+  // 4. Focus camera on active building model
   focusCurrentAsset()
 
   // 5. Re-sync annotation pins for this asset
@@ -379,7 +386,7 @@ function setupEventHandlers(v: Cesium.Viewer) {
 
     // If in "Add Defect Pin" tool mode:
     if (uiStore.activeTool === 'add_annotation') {
-      // Pick 3D position directly from depth buffer
+      // Pick 3D position directly from depth buffer (GPU picking on 3D building surface)
       const pickedPosition = v.scene.pickPosition(movement.position)
       if (Cesium.defined(pickedPosition)) {
         const coords: [number, number, number] = [
@@ -451,8 +458,8 @@ function syncAnnotationsToScene(annotations: DefectAnnotation[]) {
           horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
           width: 32,
           height: 42,
-          scaleByDistance: new Cesium.NearFarScalar(50.0, 1.2, 500.0, 0.7),
-          disableDepthTestDistance: 50 // Keep pin visible without model clipping
+          scaleByDistance: new Cesium.NearFarScalar(30.0, 1.2, 500.0, 0.7),
+          disableDepthTestDistance: 50
         },
         properties: {
           annotationId: annot.id
@@ -498,7 +505,7 @@ function flyToCoordinates(coords: [number, number, number]) {
   viewer.camera.flyTo({
     destination: Cesium.Cartesian3.add(
       dest,
-      new Cesium.Cartesian3(25, -25, 18),
+      new Cesium.Cartesian3(20, -20, 14),
       new Cesium.Cartesian3()
     ),
     orientation: {
@@ -514,7 +521,23 @@ function focusCurrentAsset() {
   if (!viewer) return
   const asset = uiStore.currentAsset
 
-  if (asset.id === 'asset-tower-01') {
+  if (asset.id === 'asset-real-building-01') {
+    // Focus on the Real Architectural Building Model
+    viewer.camera.flyTo({
+      destination: Cesium.Cartesian3.fromDegrees(
+        asset.coordinates.lon + 0.00075,
+        asset.coordinates.lat - 0.00075,
+        60
+      ),
+      orientation: {
+        heading: Cesium.Math.toRadians(315.0),
+        pitch: Cesium.Math.toRadians(-22.0),
+        roll: 0.0
+      },
+      duration: 1.2
+    })
+  } else if (asset.id === 'asset-tower-02') {
+    // Focus on the Procedural High-Rise Tower
     viewer.camera.flyTo({
       destination: Cesium.Cartesian3.fromDegrees(
         asset.coordinates.lon + 0.0012,
@@ -528,43 +551,15 @@ function focusCurrentAsset() {
       },
       duration: 1.2
     })
-  } else if (asset.id === 'asset-real-building-02') {
-    // Fly to real 3D tileset building
+  } else if (asset.id === 'asset-tileset-03') {
+    // Focus on 3D Tileset
     if (activeTileset) {
       viewer.zoomTo(activeTileset, new Cesium.HeadingPitchRange(
         Cesium.Math.toRadians(45.0),
         Cesium.Math.toRadians(-30.0),
         110.0
       ))
-    } else {
-      viewer.camera.flyTo({
-        destination: Cesium.Cartesian3.fromDegrees(
-          asset.coordinates.lon + 0.0006,
-          asset.coordinates.lat - 0.0006,
-          50
-        ),
-        orientation: {
-          heading: Cesium.Math.toRadians(330.0),
-          pitch: Cesium.Math.toRadians(-28.0),
-          roll: 0.0
-        },
-        duration: 1.2
-      })
     }
-  } else if (asset.id === 'asset-city-osm-03') {
-    viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(
-        asset.coordinates.lon + 0.003,
-        asset.coordinates.lat - 0.004,
-        350
-      ),
-      orientation: {
-        heading: Cesium.Math.toRadians(330.0),
-        pitch: Cesium.Math.toRadians(-25.0),
-        roll: 0.0
-      },
-      duration: 1.5
-    })
   }
 }
 

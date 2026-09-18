@@ -20,8 +20,8 @@ export const useUiStore = defineStore('ui', () => {
   // Current active viewport tool
   const activeTool = ref<ActiveTool>('select')
 
-  // Active digital twin asset context
-  const currentAssetId = ref('asset-tower-01')
+  // Active digital twin asset context (defaults to real architectural building model)
+  const currentAssetId = ref('asset-real-building-01')
 
   const currentAsset = computed(() => {
     return availableAssets.find((a) => a.id === currentAssetId.value) || availableAssets[0]

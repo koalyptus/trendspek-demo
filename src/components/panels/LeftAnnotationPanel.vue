@@ -5,7 +5,6 @@
     width="380"
     color="surface"
     elevation="4"
-    border="e"
     class="annotation-drawer"
     @update:model-value="(val) => uiStore.isLeftPanelOpen = val"
   >
@@ -15,9 +14,9 @@
         <div class="d-flex align-center">
           <v-icon icon="mdi-clipboard-list-outline" color="primary" class="mr-2"></v-icon>
           <div>
-            <div class="text-subtitle-2 font-weight-bold text-white">Annotations & Defects</div>
+            <div class="text-subtitle-2 font-weight-bold text-white">Annotations</div>
             <div class="text-caption text-medium-emphasis" style="font-size: 0.72rem !important;">
-              {{ currentAssetAnnotations.length }} defects on {{ uiStore.currentAsset.name }}
+              {{ currentAssetAnnotations.length }} on {{ uiStore.currentAsset.name }}
             </div>
           </div>
         </div>

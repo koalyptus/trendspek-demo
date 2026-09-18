@@ -13,7 +13,7 @@
           </v-chip>
         </div>
         <div class="text-caption text-medium-emphasis" style="font-size: 0.7rem !important; line-height: 1;">
-          Asset Inspection & Local-First Defect Engine
+          Asset Inspection
         </div>
       </div>
     </div>
