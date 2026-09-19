@@ -71,7 +71,7 @@
       ></v-btn>
     </div>
 
-    <!-- Tooltip on Marker Hover -->
+    <!-- Tooltip on Marker Click -->
     <div
       v-if="hoveredAnnotation"
       class="marker-tooltip elevation-6 rounded-lg pa-2 text-caption"
@@ -118,7 +118,6 @@ let activeTileset: Cesium.Cesium3DTileset | null = null
 // UI Overlays
 const wireframeEnabled = ref(false)
 const tooltipPos = ref({ x: 0, y: 0 })
-
 const hoveredAnnotation = computed(() => {
   if (!uiStore.hoveredAnnotationId) return null
   return props.annotations.find((a) => a.id === uiStore.hoveredAnnotationId) || null
@@ -355,62 +354,71 @@ async function loadAssetModel(assetId: string) {
   syncAnnotationsToScene(props.annotations)
 }
 
-/**
- * Setup mouse events: Picking annotation markers and dropping new defect pins
- */
-function setupEventHandlers(v: Cesium.Viewer) {
-  handler = new Cesium.ScreenSpaceEventHandler(v.scene.canvas)
+  /**
+   * Setup mouse events: Picking annotation markers and dropping new defect pins
+   */
+  function setupEventHandlers(v: Cesium.Viewer) {
+    handler = new Cesium.ScreenSpaceEventHandler(v.scene.canvas)
 
-  // 1. Mouse Move: Hover detection & cursor update
-  handler.setInputAction((movement: any) => {
-    if (!v) return
+    // 1. Mouse Move: cursor update only (no hover tooltip)
+    handler.setInputAction((movement: any) => {
+      if (!v) return
 
-    const picked = v.scene.pick(movement.endPosition)
-    if (Cesium.defined(picked) && picked.id && picked.id.properties?.annotationId) {
-      const annotId = picked.id.properties.annotationId.getValue()
-      uiStore.setHoveredAnnotation(annotId)
-      tooltipPos.value = { x: movement.endPosition.x + 15, y: movement.endPosition.y + 10 }
-      v.scene.canvas.style.cursor = 'pointer'
-    } else {
-      if (uiStore.hoveredAnnotationId) {
+      const picked = v.scene.pick(movement.endPosition)
+      if (Cesium.defined(picked) && picked.id && picked.id.properties?.annotationId) {
+        v.scene.canvas.style.cursor = 'pointer'
+      } else {
+        v.scene.canvas.style.cursor = uiStore.activeTool === 'add_annotation' ? 'crosshair' : 'default'
+      }
+    }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
+
+    // 2. Left Click: Either select marker OR drop defect pin on building surface
+    handler.setInputAction((movement: any) => {
+      if (!v) return
+
+      // If in "Add Defect Pin" tool mode:
+      if (uiStore.activeTool === 'add_annotation') {
+        // Pick 3D position directly from depth buffer (GPU picking on 3D building surface)
+        const pickedPosition = v.scene.pickPosition(movement.position)
+        if (Cesium.defined(pickedPosition)) {
+          const coords: [number, number, number] = [
+            pickedPosition.x,
+            pickedPosition.y,
+            pickedPosition.z
+          ]
+          emit('add-annotation-at', coords)
+          uiStore.setActiveTool('select')
+          // Clear tooltip when switching tools
+          uiStore.setHoveredAnnotation(null)
+        }
+        return
+      }
+
+// Default select mode: Check if an annotation marker was clicked
+      const picked = v.scene.pick(movement.position)
+      if (Cesium.defined(picked) && picked.id && picked.id.properties?.annotationId) {
+        const annotId = picked.id.properties.annotationId.getValue()
+        const annot = props.annotations.find((a) => a.id === annotId)
+        if (annot) {
+          // Show tooltip on click (instead of mouseover)
+          uiStore.setHoveredAnnotation(annotId)
+          // Position tooltip near the click position
+          tooltipPos.value = {
+            x: movement.position.x + 15,
+            y: movement.position.y + 10
+          }
+          // Select annotation & show inspection template
+          uiStore.selectAnnotation(annotId)
+        } else {
+          // Clicked elsewhere on the model: hide the tooltip
+          uiStore.setHoveredAnnotation(null)
+        }
+      } else {
+        // Clicked on empty space: hide the tooltip
         uiStore.setHoveredAnnotation(null)
       }
-      v.scene.canvas.style.cursor = uiStore.activeTool === 'add_annotation' ? 'crosshair' : 'default'
-    }
-  }, Cesium.ScreenSpaceEventType.MOUSE_MOVE)
-
-  // 2. Left Click: Either select marker OR drop defect pin on building surface
-  handler.setInputAction((movement: any) => {
-    if (!v) return
-
-    // If in "Add Defect Pin" tool mode:
-    if (uiStore.activeTool === 'add_annotation') {
-      // Pick 3D position directly from depth buffer (GPU picking on 3D building surface)
-      const pickedPosition = v.scene.pickPosition(movement.position)
-      if (Cesium.defined(pickedPosition)) {
-        const coords: [number, number, number] = [
-          pickedPosition.x,
-          pickedPosition.y,
-          pickedPosition.z
-        ]
-        emit('add-annotation-at', coords)
-        uiStore.setActiveTool('select')
-      }
-      return
-    }
-
-    // Default select mode: Check if an annotation marker was clicked
-    const picked = v.scene.pick(movement.position)
-    if (Cesium.defined(picked) && picked.id && picked.id.properties?.annotationId) {
-      const annotId = picked.id.properties.annotationId.getValue()
-      const annot = props.annotations.find((a) => a.id === annotId)
-      if (annot) {
-        // Select annotation & show tooltip panel
-        uiStore.selectAnnotation(annot.id)
-      }
-    }
-  }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
-}
+    }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
+  }
 
 /**
  * Synchronizes RxDB annotations into Cesium Billboard Entities
