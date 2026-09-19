@@ -208,6 +208,8 @@ function getStatusColor(status: DefectStatus): string {
 function handleSelect(item: DefectAnnotation) {
   // Select annotation & show inspection template
   uiStore.selectAnnotation(item.id)
+  // Also show tooltip on the 3D model for this annotation
+  uiStore.setHoveredAnnotation(item.id)
 }
 
 function flyToAnnotation(item: DefectAnnotation) {

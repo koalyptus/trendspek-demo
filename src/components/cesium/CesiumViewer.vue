@@ -117,10 +117,44 @@ let activeTileset: Cesium.Cesium3DTileset | null = null
 
 // UI Overlays
 const wireframeEnabled = ref(false)
-const tooltipPos = ref({ x: 0, y: 0 })
+const tooltipPos = ref({ x: -9999, y: -9999 })
 const hoveredAnnotation = computed(() => {
   if (!uiStore.hoveredAnnotationId) return null
   return props.annotations.find((a) => a.id === uiStore.hoveredAnnotationId) || null
+})
+
+// Update tooltip position when hovered annotation changes (from left panel or 3D viewer click)
+watch(() => uiStore.hoveredAnnotationId, (annotationId) => {
+  if (!annotationId || !viewer) {
+    tooltipPos.value = { x: -9999, y: -9999 }
+    return
+  }
+
+  const annot = props.annotations.find((a) => a.id === annotationId)
+  if (!annot) {
+    tooltipPos.value = { x: -9999, y: -9999 }
+    return
+  }
+
+  // Convert annotation world position to canvas coordinates using Cesium's documented method
+  const position = new Cesium.Cartesian3(
+    annot.positionXyz[0],
+    annot.positionXyz[1],
+    annot.positionXyz[2]
+  )
+
+  const canvasPosition = new Cesium.Cartesian2()
+  const success = viewer.scene.cartesianToCanvasCoordinates(position, canvasPosition)
+  if (success) {
+    // Position tooltip slightly above and to the right of the marker
+    tooltipPos.value = {
+      x: canvasPosition.x + 15,
+      y: canvasPosition.y - 10
+    }
+  } else {
+    // If conversion fails (e.g., annotation behind camera), hide tooltip
+    tooltipPos.value = { x: -9999, y: -9999 }
+  }
 })
 
 // Pin SVG generators for high contrast pins in dark mode
@@ -402,11 +436,6 @@ async function loadAssetModel(assetId: string) {
         if (annot) {
           // Show tooltip on click (instead of mouseover)
           uiStore.setHoveredAnnotation(annotId)
-          // Position tooltip near the click position
-          tooltipPos.value = {
-            x: movement.position.x + 15,
-            y: movement.position.y + 10
-          }
           // Select annotation & show inspection template
           uiStore.selectAnnotation(annotId)
         } else {
