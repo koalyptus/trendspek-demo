@@ -245,7 +245,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'select-annotation', annotation: DefectAnnotation): void
   (e: 'fly-to-annotation', coords: [number, number, number]): void
 }>()
 
@@ -311,9 +310,8 @@ function getTemplateName(templateId: string): string {
 }
 
 function handleSelect(item: DefectAnnotation) {
-  // Select annotation in Pinia store & request camera fly
-  uiStore.selectAnnotation(item.id, item.positionXyz)
-  emit('select-annotation', item)
+  // Select annotation & show tooltip panel
+  uiStore.selectAnnotation(item.id)
 }
 
 function flyToAnnotation(item: DefectAnnotation) {

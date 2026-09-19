@@ -99,7 +99,6 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{
-  (e: 'select-annotation', annotation: DefectAnnotation): void
   (e: 'add-annotation-at', coords: [number, number, number]): void
 }>()
 
@@ -406,8 +405,8 @@ function setupEventHandlers(v: Cesium.Viewer) {
       const annotId = picked.id.properties.annotationId.getValue()
       const annot = props.annotations.find((a) => a.id === annotId)
       if (annot) {
-        uiStore.selectAnnotation(annot.id, annot.positionXyz)
-        emit('select-annotation', annot)
+        // Select annotation & show tooltip panel
+        uiStore.selectAnnotation(annot.id)
       }
     }
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK)
@@ -500,64 +499,54 @@ watch(
 
 function flyToCoordinates(coords: [number, number, number]) {
   if (!viewer) return
-  const dest = new Cesium.Cartesian3(coords[0], coords[1], coords[2])
+  const pin = new Cesium.Cartesian3(coords[0], coords[1], coords[2])
+  const currentPos = viewer.camera.position.clone()
 
-  viewer.camera.flyTo({
-    destination: Cesium.Cartesian3.add(
-      dest,
-      new Cesium.Cartesian3(20, -20, 14),
-      new Cesium.Cartesian3()
-    ),
-    orientation: {
-      heading: Cesium.Math.toRadians(45.0),
-      pitch: Cesium.Math.toRadians(-25.0),
-      roll: 0.0
-    },
-    duration: 1.5
-  })
+  // Compute the ENU basis at the pin position.
+  const east = Cesium.Cartesian3.cross(Cesium.Cartesian3.UNIT_Z, pin, new Cesium.Cartesian3())
+  Cesium.Cartesian3.normalize(east, east)
+  const up = Cesium.Cartesian3.normalize(pin, new Cesium.Cartesian3())
+  const north = Cesium.Cartesian3.cross(east, up, new Cesium.Cartesian3())
+  Cesium.Cartesian3.normalize(north, north)
+
+  // ECEF difference from pin to camera
+  const diff = new Cesium.Cartesian3()
+  Cesium.Cartesian3.subtract(currentPos, pin, diff)
+
+  // Project onto ENU axes
+  const enuOffset = new Cesium.Cartesian3(
+    Cesium.Cartesian3.dot(diff, east),
+    Cesium.Cartesian3.dot(diff, north),
+    Cesium.Cartesian3.dot(diff, up)
+  )
+
+  viewer.camera.lookAt(pin, enuOffset)
 }
 
 function focusCurrentAsset() {
   if (!viewer) return
   const asset = uiStore.currentAsset
+  const lon = asset.coordinates.lon
+  const lat = asset.coordinates.lat
 
   if (asset.id === 'asset-real-building-01') {
-    // Focus on the Real Architectural Building Model
-    viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(
-        asset.coordinates.lon + 0.00075,
-        asset.coordinates.lat - 0.00075,
-        60
-      ),
-      orientation: {
-        heading: Cesium.Math.toRadians(315.0),
-        pitch: Cesium.Math.toRadians(-22.0),
-        roll: 0.0
-      },
-      duration: 1.2
-    })
+    // Position camera to look at the building from a 3/4 view: 80m west,
+    // 80m north, 120m above the building base (24m altitude).
+    const target = Cesium.Cartesian3.fromDegrees(lon, lat, 24.0)
+    const offset = new Cesium.Cartesian3(-80, 80, 120)
+    viewer.camera.lookAt(target, offset)
   } else if (asset.id === 'asset-tower-02') {
-    // Focus on the Procedural High-Rise Tower
-    viewer.camera.flyTo({
-      destination: Cesium.Cartesian3.fromDegrees(
-        asset.coordinates.lon + 0.0012,
-        asset.coordinates.lat - 0.0014,
-        130
-      ),
-      orientation: {
-        heading: Cesium.Math.toRadians(320.0),
-        pitch: Cesium.Math.toRadians(-22.0),
-        roll: 0.0
-      },
-      duration: 1.2
-    })
+    // For the procedural tower: center on the tower top (67m), camera at
+    // 40m west, 40m north, 80m above the tower center.
+    const target = Cesium.Cartesian3.fromDegrees(lon, lat, 67.0)
+    const offset = new Cesium.Cartesian3(-40, 40, 80)
+    viewer.camera.lookAt(target, offset)
   } else if (asset.id === 'asset-tileset-03') {
-    // Focus on 3D Tileset
     if (activeTileset) {
       viewer.zoomTo(activeTileset, new Cesium.HeadingPitchRange(
         Cesium.Math.toRadians(45.0),
-        Cesium.Math.toRadians(-30.0),
-        110.0
+        Cesium.Math.toRadians(-25.0),
+        200.0
       ))
     }
   }

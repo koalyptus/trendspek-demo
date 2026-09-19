@@ -9,6 +9,8 @@ import { templateSchemaLiteral } from './schemas/template.schema'
 import { defaultTemplates, initialDemoAnnotations } from './defaultData'
 import type { DefectAnnotation, AnnotationTemplate } from '@/types'
 
+const DBNAME = 'trendspek_db'
+
 // Add update plugin
 addRxPlugin(RxDBUpdatePlugin)
 
@@ -43,7 +45,7 @@ async function initDatabase(): Promise<TrendspekDatabase> {
     : baseStorage
 
   const db = await createRxDatabase<TrendspekDatabaseCollections>({
-    name: 'trendspek_db_v2', // v2 to ensure clean update for real building
+    name: DBNAME,
     storage,
     ignoreDuplicate: true
   })

@@ -9,7 +9,6 @@
       <LeftAnnotationPanel
         :annotations="annotations"
         :templates="templates"
-        @select-annotation="handleAnnotationSelected"
         @fly-to-annotation="handleFlyToAnnotation"
       />
 
@@ -17,7 +16,6 @@
       <CesiumViewer
         ref="cesiumViewerRef"
         :annotations="annotations"
-        @select-annotation="handleAnnotationSelected"
         @add-annotation-at="handleAddAnnotationAtPosition"
       />
 
@@ -197,10 +195,6 @@ onBeforeUnmount(() => {
   }
 })
 
-function handleAnnotationSelected(annotation: DefectAnnotation) {
-  uiStore.selectAnnotation(annotation.id, annotation.positionXyz)
-}
-
 function handleFlyToAnnotation(coords: [number, number, number]) {
   if (cesiumViewerRef.value) {
     cesiumViewerRef.value.flyToCoordinates(coords)
@@ -234,7 +228,7 @@ async function confirmAddDefect() {
     description: 'Recorded from 3D surface depth pick.',
     severity: newDefectSeverity.value,
     status: 'open',
-    positionXyz: pendingCoords.value,
+    positionXyz: [...pendingCoords.value!],
     templateId: newDefectTemplateId.value,
     templateValues: defaultValues,
     author: 'Field Inspector',
@@ -246,8 +240,8 @@ async function confirmAddDefect() {
     await db.annotations.insert(newDefect)
     showNewDefectDialog.value = false
 
-    // Select new defect, fly to it, and open right template panel!
-    uiStore.selectAnnotation(newId, pendingCoords.value)
+    // Select new defect, open right template panel
+    uiStore.selectAnnotation(newId)
     notify(`Added "${newDefect.title}" to local IndexedDB`, 'success', 'mdi-map-marker-check')
   } catch (err) {
     console.error('Failed to insert defect into RxDB:', err)
