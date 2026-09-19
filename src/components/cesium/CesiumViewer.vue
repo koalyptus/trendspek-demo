@@ -394,7 +394,7 @@ async function loadAssetModel(assetId: string) {
         return
       }
 
-// Default select mode: Check if an annotation marker was clicked
+      // Default select mode: Check if an annotation marker was clicked
       const picked = v.scene.pick(movement.position)
       if (Cesium.defined(picked) && picked.id && picked.id.properties?.annotationId) {
         const annotId = picked.id.properties.annotationId.getValue()
