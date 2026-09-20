@@ -560,28 +560,25 @@ watch(
 
 function flyToCoordinates(coords: [number, number, number]) {
   if (!viewer) return
-  const pin = new Cesium.Cartesian3(coords[0], coords[1], coords[2])
-  const currentPos = viewer.camera.position.clone()
-
-  // Compute the ENU basis at the pin position.
-  const east = Cesium.Cartesian3.cross(Cesium.Cartesian3.UNIT_Z, pin, new Cesium.Cartesian3())
-  Cesium.Cartesian3.normalize(east, east)
-  const up = Cesium.Cartesian3.normalize(pin, new Cesium.Cartesian3())
-  const north = Cesium.Cartesian3.cross(east, up, new Cesium.Cartesian3())
-  Cesium.Cartesian3.normalize(north, north)
-
-  // ECEF difference from pin to camera
-  const diff = new Cesium.Cartesian3()
-  Cesium.Cartesian3.subtract(currentPos, pin, diff)
-
-  // Project onto ENU axes
-  const enuOffset = new Cesium.Cartesian3(
-    Cesium.Cartesian3.dot(diff, east),
-    Cesium.Cartesian3.dot(diff, north),
-    Cesium.Cartesian3.dot(diff, up)
-  )
-
-  viewer.camera.lookAt(pin, enuOffset)
+  const target = new Cesium.Cartesian3(coords[0], coords[1], coords[2])
+  
+  // Fly to the target with a smooth camera flight
+  viewer.camera.flyTo({
+    destination: target,
+    orientation: {
+      heading: viewer.camera.heading,
+      pitch: Cesium.Math.toRadians(-45),
+      roll: 0
+    },
+    duration: 2.0,
+    complete: () => {
+      // After flight, look at the target from a fixed distance
+      const heading = viewer.camera.heading
+      const pitch = Cesium.Math.toRadians(-45)
+      const range = 80 // meters
+      viewer.camera.lookAt(Cesium.Cartesian3.clone(target), new Cesium.HeadingPitchRange(heading, pitch, range))
+    }
+  })
 }
 
 function focusCurrentAsset() {
