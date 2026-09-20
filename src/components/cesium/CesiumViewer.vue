@@ -563,12 +563,21 @@ function flyToCoordinates(coords: [number, number, number]) {
   const target = new Cesium.Cartesian3(coords[0], coords[1], coords[2])
   
   // Direct camera movement to target with fixed view - no space flyout
+  const cartographic = Cesium.Cartographic.fromCartesian(target)
+  const lon = Cesium.Math.toDegrees(cartographic.longitude)
+  const lat = Cesium.Math.toDegrees(cartographic.latitude)
+  const height = cartographic.height + 120
+  
+  // Create destination using low-level API (works in all Cesium versions)
+  const cartographicDest = new Cesium.Cartographic(
+    Cesium.Math.toRadians(cartographic.longitude),
+    Cesium.Math.toRadians(cartographic.latitude),
+    cartographic.height + 120
+  )
+  const destination = Cesium.Ellipsoid.WGS84.cartographicToCartesian(cartographicDest)
+  
   viewer.camera.setView({
-    destination: Cesium.Cartesian3.fromDegrees(
-      Cesium.Cartographic.fromCartesian(target).longitude,
-      Cesium.Cartographic.fromCartesian(target).latitude,
-      Cesium.Cartographic.fromCartesian(target).height + 120
-    ),
+    destination,
     orientation: {
       heading: viewer.camera.heading,
       pitch: Cesium.Math.toRadians(-45),
