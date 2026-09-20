@@ -124,13 +124,13 @@ const hoveredAnnotation = computed(() => {
 })
 
 // Update tooltip position when hovered annotation changes (from left panel or 3D viewer click)
-watch(() => uiStore.hoveredAnnotationId, (annotationId) => {
-  if (!annotationId || !viewer) {
+function updateTooltipPosition() {
+  if (!viewer || !uiStore.hoveredAnnotationId) {
     tooltipPos.value = { x: -9999, y: -9999 }
     return
   }
 
-  const annot = props.annotations.find((a) => a.id === annotationId)
+  const annot = props.annotations.find((a) => a.id === uiStore.hoveredAnnotationId)
   if (!annot) {
     tooltipPos.value = { x: -9999, y: -9999 }
     return
@@ -155,7 +155,31 @@ watch(() => uiStore.hoveredAnnotationId, (annotationId) => {
     // If conversion fails (e.g., annotation behind camera), hide tooltip
     tooltipPos.value = { x: -9999, y: -9999 }
   }
+}
+
+watch(() => uiStore.hoveredAnnotationId, (annotationId) => {
+  if (annotationId) {
+    startTooltipTracking()
+  } else {
+    stopTooltipTracking()
+    tooltipPos.value = { x: -9999, y: -9999 }
+  }
 })
+
+// Update tooltip position on every frame to keep it clamped to the pin during zoom/pan
+let preRenderHandler: (() => void) | null = null
+function startTooltipTracking() {
+  if (preRenderHandler) return
+  preRenderHandler = updateTooltipPosition
+  viewer.scene.preRender.addEventListener(preRenderHandler)
+}
+
+function stopTooltipTracking() {
+  if (preRenderHandler && viewer) {
+    viewer.scene.preRender.removeEventListener(preRenderHandler)
+    preRenderHandler = null
+  }
+}
 
 // Pin SVG generators for high contrast pins in dark mode
 function getPinSvgUrl(severity: Severity): string {
