@@ -1,7 +1,7 @@
 <template>
   <v-app class="trendspek-app">
     <!-- Top App Bar -->
-    <AppHeader @reset-demo="handleResetDemo" />
+    <AppHeader />
 
     <!-- Main Viewport Area -->
     <v-main class="main-viewport-container">
@@ -110,7 +110,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { Subscription } from 'rxjs'
-import { getDatabase, resetDatabaseToDemo, type TrendspekDatabase } from '@/database'
+import { getDatabase, type TrendspekDatabase } from '@/database'
 import { useUiStore } from '@/stores/ui.store'
 import type { DefectAnnotation, AnnotationTemplate, Severity } from '@/types'
 
@@ -278,15 +278,6 @@ async function handleDeleteAnnotation(id: string) {
   }
 }
 
-async function handleResetDemo() {
-  if (!db) return
-  try {
-    await resetDatabaseToDemo(db)
-    notify('Reset database to demo inspection state', 'info', 'mdi-restore')
-  } catch (err) {
-    console.error('Failed to reset demo data:', err)
-  }
-}
 </script>
 
 <style>

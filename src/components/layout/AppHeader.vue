@@ -119,21 +119,6 @@
       @click="showInfoDialog = true"
     ></v-btn>
 
-    <!-- Reset to Demo Data Button -->
-    <v-tooltip text="Reset demo annotations & templates" location="bottom">
-      <template #activator="{ props }">
-        <v-btn
-          v-bind="props"
-          icon="mdi-restore"
-          size="small"
-          variant="text"
-          color="medium-emphasis"
-          class="mr-1"
-          @click="emit('reset-demo')"
-        ></v-btn>
-      </template>
-    </v-tooltip>
-
     <v-divider vertical inset class="mx-2"></v-divider>
 
     <!-- Left Panel Toggle (Annotations) -->
