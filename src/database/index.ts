@@ -80,13 +80,4 @@ async function initDatabase(): Promise<TrendspekDatabase> {
   return db
 }
 
-/**
- * Resets database to default demo state
- */
-export async function resetDatabaseToDemo(db: TrendspekDatabase): Promise<void> {
-  await db.annotations.find().remove()
-  await db.templates.find().remove()
-  await db.templates.bulkInsert(defaultTemplates)
-  await db.annotations.bulkInsert(initialDemoAnnotations)
-  console.log('[RxDB] Reset database to default demo state')
-}
+
