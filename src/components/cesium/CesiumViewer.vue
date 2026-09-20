@@ -562,15 +562,22 @@ function flyToCoordinates(coords: [number, number, number]) {
   if (!viewer) return
   const target = new Cesium.Cartesian3(coords[0], coords[1], coords[2])
   
+  // Fly to a position above the target (100m above) to avoid going into space
+  const aboveTarget = Cesium.Cartesian3.fromDegrees(
+    Cesium.Cartographic.fromCartesian(target).longitude,
+    Cesium.Cartographic.fromCartesian(target).latitude,
+    Cesium.Cartographic.fromCartesian(target).height + 100
+  )
+  
   // Fly to the target with a smooth camera flight
   viewer.camera.flyTo({
-    destination: target,
+    destination: aboveTarget,
     orientation: {
       heading: viewer.camera.heading,
       pitch: Cesium.Math.toRadians(-45),
       roll: 0
     },
-    duration: 2.0,
+    duration: 1.5,
     complete: () => {
       // After flight, look at the target from a fixed distance
       const heading = viewer.camera.heading
