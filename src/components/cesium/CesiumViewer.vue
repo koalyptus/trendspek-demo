@@ -564,7 +564,7 @@ function flyToCoordinates(coords: [number, number, number]) {
   
   // Direct camera movement to target with fixed view - no space flyout
   viewer.camera.setView({
-    destination: new Cesium.Cartesian3.fromDegrees(
+    destination: Cesium.Cartesian3.fromDegrees(
       Cesium.Cartographic.fromCartesian(target).longitude,
       Cesium.Cartographic.fromCartesian(target).latitude,
       Cesium.Cartographic.fromCartesian(target).height + 120
