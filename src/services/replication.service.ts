@@ -3,6 +3,7 @@ import type { RxReplicationState } from 'rxdb/plugins/replication'
 import type { TrendspekDatabase } from '@/database'
 import type { DefectAnnotation } from '@/types'
 import { ref } from 'vue'
+import { Subject } from 'rxjs'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
 
@@ -13,6 +14,8 @@ export function createReplicationService(db: TrendspekDatabase) {
   let isRunning = false
   const status = ref<'synced' | 'offline'>('offline')
   let onStatusChange: ((newStatus: 'synced' | 'offline') => void) | null = null
+  let lastErrorTime: number = -1
+  const handlerErrorSubject = new Subject<void>()
 
   async function start() {
     if (replicationState && !replicationState.isStoppedOrPaused()) {
@@ -33,49 +36,84 @@ export function createReplicationService(db: TrendspekDatabase) {
       replicationIdentifier: 'trendspek-annotations-replication',
       live: true,
       pull: {
-        handler: async (lastPulledCheckpoint: CheckpointType | undefined, batchSize: number) => {
-          const res = await fetch(`${API_BASE}/sync/pull`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ checkpoint: lastPulledCheckpoint })
-          })
-          if (!res.ok) {
-            throw new Error(`Pull failed: ${res.status} ${res.statusText}`)
-          }
-          const data = await res.json() as { documents: DefectAnnotation[]; checkpoint: string }
-          return {
-            documents: data.documents.map(d => ({ ...d, _deleted: false })),
-            checkpoint: data.checkpoint
+        handler: async (lastPulledCheckpoint: CheckpointType | undefined, _batchSize: number) => {
+          try {
+            const res = await fetch(`${API_BASE}/sync/pull`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ checkpoint: lastPulledCheckpoint })
+            })
+            if (!res.ok) {
+              throw new Error(`Pull failed: ${res.status} ${res.statusText}`)
+            }
+            const data = await res.json() as { documents: DefectAnnotation[]; checkpoint: string }
+            return {
+              documents: data.documents.map(d => ({ ...d, _deleted: false })),
+              checkpoint: data.checkpoint
+            }
+          } catch (err) {
+            handlerErrorSubject.next()
+            throw err
           }
         },
-        live: true,
         batchSize: 10
       },
       push: {
         handler: async (docs: any[]) => {
-          const res = await fetch(`${API_BASE}/sync/push`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ documents: docs })
-          })
-          if (!res.ok) {
-            throw new Error(`Push failed: ${res.status} ${res.statusText}`)
+          try {
+            const res = await fetch(`${API_BASE}/sync/push`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ documents: docs })
+            })
+            if (!res.ok) {
+              throw new Error(`Push failed: ${res.status} ${res.statusText}`)
+            }
+            return []
+          } catch (err) {
+            handlerErrorSubject.next()
+            throw err
           }
-          return []
         }
       }
     })
 
-    // Use the public error$ Observable — documented in RxDB v16 docs
-    // (https://rxdb.info/articles/tanstack-db/sync-tanstack-db.html)
+    // error$ — emitted by RxDB when replication encounters an error.
+    // Also tracks lastErrorTime so active$ can gate the recovery transition.
     if (replicationState && 'error$' in replicationState) {
       const error$ = (replicationState as any).error$
       if (error$ && typeof error$.subscribe === 'function') {
         error$.subscribe((err: any) => {
           console.log('[Replication] error$ emitted:', err)
+          lastErrorTime = Date.now()
           if (status.value !== 'offline') {
             status.value = 'offline'
             onStatusChange?.('offline')
+          }
+        })
+      }
+    }
+
+    // handlerErrorSubject — fires when our fetch handlers fail (server unreachable).
+    // This is more reliable than error$ for HTTP-level failures.
+    handlerErrorSubject.subscribe(() => {
+      lastErrorTime = Date.now()
+      if (status.value !== 'offline') {
+        status.value = 'offline'
+        onStatusChange?.('offline')
+      }
+    })
+
+    // active$ — when replication becomes active again AFTER being offline,
+    // transition back to 'synced' only if no error has occurred in the last 5s.
+    if (replicationState && 'active$' in replicationState) {
+      const active$ = (replicationState as any).active$
+      if (active$ && typeof active$.subscribe === 'function') {
+        active$.subscribe((isActive: boolean) => {
+          console.log('[Replication] active$ emitted:', isActive)
+          if (isActive && status.value === 'offline' && Date.now() - lastErrorTime > 5000) {
+            status.value = 'synced'
+            onStatusChange?.('synced')
           }
         })
       }
@@ -86,19 +124,6 @@ export function createReplicationService(db: TrendspekDatabase) {
     status.value = 'synced'
     console.log('[Replication] status set to synced, calling onStatusChange')
     onStatusChange?.('synced')
-  }
-
-  async function stop() {
-    if (replicationState && !replicationState.isStoppedOrPaused()) {
-      try {
-        await (replicationState as any).stop?.()
-      } catch (e) {
-        console.log('[Replication] stop not available, ignoring')
-      }
-      isRunning = false
-      status.value = 'offline'
-      onStatusChange?.('offline')
-    }
   }
 
   return {
@@ -112,7 +137,6 @@ export function createReplicationService(db: TrendspekDatabase) {
       return status.value
     },
     start,
-    stop,
     set onStatusChange(cb: (newStatus: 'synced' | 'offline') => void) {
       console.log('[Replication] onStatusChange setter called')
       onStatusChange = cb
