@@ -217,8 +217,7 @@ onBeforeUnmount(() => {
     templatesSub = null
   }
   if (replicationService.value) {
-    // replicationState.stop() is not a documented RxDB method — rely on
-    // error$/active$ observables to drive status transitions instead
+    replicationService.value.destroy()
   }
 })
 

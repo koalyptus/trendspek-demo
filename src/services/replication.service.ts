@@ -16,6 +16,8 @@ export function createReplicationService(db: TrendspekDatabase) {
   let onStatusChange: ((newStatus: 'synced' | 'offline') => void) | null = null
   let lastErrorTime: number = -1
   const handlerErrorSubject = new Subject<void>()
+  let handlerErrorSubscription: any = null
+  let healthCheckIntervalId: ReturnType<typeof setInterval> | null = null
 
   async function start() {
     if (replicationState && !replicationState.isStoppedOrPaused()) {
@@ -79,7 +81,6 @@ export function createReplicationService(db: TrendspekDatabase) {
     })
 
     // error$ — emitted by RxDB when replication encounters an error.
-    // Also tracks lastErrorTime so active$ can gate the recovery transition.
     if (replicationState && 'error$' in replicationState) {
       const error$ = (replicationState as any).error$
       if (error$ && typeof error$.subscribe === 'function') {
@@ -95,8 +96,7 @@ export function createReplicationService(db: TrendspekDatabase) {
     }
 
     // handlerErrorSubject — fires when our fetch handlers fail (server unreachable).
-    // This is more reliable than error$ for HTTP-level failures.
-    handlerErrorSubject.subscribe(() => {
+    handlerErrorSubscription = handlerErrorSubject.subscribe(() => {
       lastErrorTime = Date.now()
       if (status.value !== 'offline') {
         status.value = 'offline'
@@ -104,26 +104,56 @@ export function createReplicationService(db: TrendspekDatabase) {
       }
     })
 
-    // active$ — when replication becomes active again AFTER being offline,
-    // transition back to 'synced' only if no error has occurred in the last 5s.
-    if (replicationState && 'active$' in replicationState) {
-      const active$ = (replicationState as any).active$
-      if (active$ && typeof active$.subscribe === 'function') {
-        active$.subscribe((isActive: boolean) => {
-          console.log('[Replication] active$ emitted:', isActive)
-          if (isActive && status.value === 'offline' && Date.now() - lastErrorTime > 5000) {
+    // Health check — independent of RxDB's handler calling behavior.
+    // Pings the server every 5s to detect downtime and recovery.
+    healthCheckIntervalId = setInterval(async () => {
+      let timedOut = false
+      const controller = new AbortController()
+      const timeoutId = setTimeout(() => {
+        timedOut = true
+        controller.abort()
+      }, 2000)
+      try {
+        const res = await fetch(`${API_BASE}/api/health`, {
+          method: 'GET',
+          signal: controller.signal
+        })
+        if (!timedOut && res.ok) {
+          // Server is reachable
+          if (status.value === 'offline' && Date.now() - lastErrorTime > 5000) {
+            lastErrorTime = -1
             status.value = 'synced'
             onStatusChange?.('synced')
           }
-        })
+        }
+      } catch {
+        // Server is not reachable (or timed out)
+        lastErrorTime = Date.now()
+        if (status.value !== 'offline') {
+          status.value = 'offline'
+          onStatusChange?.('offline')
+        }
+      } finally {
+        clearTimeout(timeoutId)
       }
-    }
+    }, 5000)
 
     await replicationState.start()
     isRunning = true
     status.value = 'synced'
     console.log('[Replication] status set to synced, calling onStatusChange')
     onStatusChange?.('synced')
+  }
+
+  function destroy() {
+    if (healthCheckIntervalId) {
+      clearInterval(healthCheckIntervalId)
+      healthCheckIntervalId = null
+    }
+    if (handlerErrorSubscription) {
+      handlerErrorSubscription.unsubscribe()
+      handlerErrorSubscription = null
+    }
   }
 
   return {
@@ -137,6 +167,7 @@ export function createReplicationService(db: TrendspekDatabase) {
       return status.value
     },
     start,
+    destroy,
     set onStatusChange(cb: (newStatus: 'synced' | 'offline') => void) {
       console.log('[Replication] onStatusChange setter called')
       onStatusChange = cb
