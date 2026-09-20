@@ -561,18 +561,19 @@ watch(
 function flyToCoordinates(coords: [number, number, number]) {
   if (!viewer) return
   const target = new Cesium.Cartesian3(coords[0], coords[1], coords[2])
-  const cartographic = Cesium.Cartographic.fromCartesian(target)
   
-  // Fly directly to viewing position using HeadingPitchRange (avoids space flyout)
-  viewer.camera.flyTo({
-    destination: target,
-    orientation: new Cesium.HeadingPitchRange(
-      viewer.camera.heading,
-      Cesium.Math.toRadians(-45),
-      120 // range in meters from target (increased from 80 for less zoom)
+  // Direct camera movement to target with fixed view - no space flyout
+  viewer.camera.setView({
+    destination: new Cesium.Cartesian3.fromDegrees(
+      Cesium.Cartographic.fromCartesian(target).longitude,
+      Cesium.Cartographic.fromCartesian(target).latitude,
+      Cesium.Cartographic.fromCartesian(target).height + 120
     ),
-    duration: 1.5,
-    maximumHeight: cartographic.height + 200, // Limit max height to prevent space flyout
+    orientation: {
+      heading: viewer.camera.heading,
+      pitch: Cesium.Math.toRadians(-45),
+      roll: 0
+    }
   })
 }
 
