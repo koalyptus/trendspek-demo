@@ -6,7 +6,7 @@ import { RxDBUpdatePlugin } from 'rxdb/plugins/update'
 import type { RxCollection, RxDatabase } from 'rxdb'
 import { annotationSchemaLiteral } from './schemas/annotation.schema'
 import { templateSchemaLiteral } from './schemas/template.schema'
-import { defaultTemplates, initialDemoAnnotations } from './defaultData'
+import { defaultTemplates } from './defaultData'
 import type { DefectAnnotation, AnnotationTemplate } from '@/types'
 
 const DBNAME = 'trendspek_db'
@@ -65,14 +65,6 @@ async function initDatabase(): Promise<TrendspekDatabase> {
     const existing = await db.templates.findOne(tpl.id).exec()
     if (!existing) {
       await db.templates.insert(tpl)
-    }
-  }
-
-  // Seed demo annotations if not present
-  for (const annot of initialDemoAnnotations) {
-    const existing = await db.annotations.findOne(annot.id).exec()
-    if (!existing) {
-      await db.annotations.insert(annot)
     }
   }
 
