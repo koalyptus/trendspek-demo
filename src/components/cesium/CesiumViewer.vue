@@ -569,7 +569,7 @@ function flyToCoordinates(coords: [number, number, number]) {
     orientation: new Cesium.HeadingPitchRange(
       viewer.camera.heading,
       Cesium.Math.toRadians(-45),
-      80 // range in meters from target
+      120 // range in meters from target (increased from 80 for less zoom)
     ),
     duration: 1.5,
     maximumHeight: cartographic.height + 200, // Limit max height to prevent space flyout
