@@ -263,8 +263,6 @@
 
       <!-- Panel Footer -->
       <div class="pa-2 border-t bg-surface-variant d-flex align-center justify-space-between text-caption text-medium-emphasis">
-        <span style="font-size: 0.7rem;">RxDB Schema Replication Ready</span>
-        <v-icon icon="mdi-shield-check" color="success" size="16"></v-icon>
       </div>
     </div>
   </v-navigation-drawer>

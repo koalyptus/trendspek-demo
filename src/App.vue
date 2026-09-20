@@ -187,6 +187,13 @@ onMounted(async () => {
     // 3. Start live replication with backend (stub — no persistence)
     try {
       replicationService.value = createReplicationService(db)
+      replicationService.value.onStatusChange = (newStatus: 'synced' | 'offline') => {
+        replicationStatus.value = newStatus
+        console.log(`[Replication Status] ${newStatus}`)
+        if (newStatus === 'offline') {
+          notify('Backend unreachable — running offline', 'warning', 'mdi-cloud-off-outline')
+        }
+      }
       await replicationService.value.start()
       replicationStatus.value = replicationService.value.status
       notify('Replication active — synced with server', 'success', 'mdi-cloud-check')

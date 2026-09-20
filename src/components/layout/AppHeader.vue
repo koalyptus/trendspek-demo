@@ -93,23 +93,6 @@
     </div>
 
     <v-spacer></v-spacer>
-
-    <!-- Architecture / Local-First Status Indicator -->
-    <div class="d-flex align-center mr-3">
-      <v-tooltip text="RxDB + IndexedDB (Dexie) is actively persisting annotations locally in your browser" location="bottom">
-        <template #activator="{ props }">
-          <div v-bind="props" class="d-flex align-center px-2 py-1 rounded-pill cursor-pointer" style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);">
-            <div class="status-pulse mr-2"></div>
-            <v-icon icon="mdi-database-check" size="16" color="success" class="mr-1"></v-icon>
-            <span class="text-caption font-weight-bold text-success" style="font-size: 0.72rem !important;">
-              RxDB · IndexedDB Synced
-            </span>
-          </div>
-        </template>
-      </v-tooltip>
-    </div>
-
-    <!-- Replication Status Indicator -->
     <v-tooltip :text="props.replicationStatus === 'synced' ? 'Replication active — changes synced with server' : 'Replication offline — running locally only'" location="bottom">
       <template #activator="{ props: tooltipProps }">
         <div v-bind="tooltipProps" class="d-flex align-center px-2 py-1 rounded-pill cursor-pointer" :style="props.replicationStatus === 'synced' ? 'background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);' : 'background: rgba(100, 100, 100, 0.12); border: 1px solid rgba(100, 100, 100, 0.3);'">
@@ -215,7 +198,7 @@ const uiStore = useUiStore()
 const showInfoDialog = ref(false)
 
 const props = defineProps<{
-  replicationStatus: 'synced' | 'offline'
+  replicationStatus?: 'synced' | 'offline'
 }>()
 
 const emit = defineEmits<{
