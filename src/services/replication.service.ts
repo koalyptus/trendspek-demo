@@ -3,7 +3,6 @@ import type { RxReplicationState } from 'rxdb/plugins/replication'
 import type { TrendspekDatabase } from '@/database'
 import type { DefectAnnotation } from '@/types'
 import { ref } from 'vue'
-import { Subject } from 'rxjs'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
 
@@ -15,9 +14,9 @@ export function createReplicationService(db: TrendspekDatabase) {
   const status = ref<'synced' | 'offline'>('offline')
   let onStatusChange: ((newStatus: 'synced' | 'offline') => void) | null = null
   let lastErrorTime: number = -1
-  const handlerErrorSubject = new Subject<void>()
-  let handlerErrorSubscription: any = null
-  let healthCheckIntervalId: ReturnType<typeof setInterval> | null = null
+  let errorSub: any = null
+  let onlineHandler: ((...args: any[]) => void) | null = null
+  let offlineHandler: ((...args: any[]) => void) | null = null
 
   async function start() {
     if (replicationState && !replicationState.isStoppedOrPaused()) {
@@ -25,6 +24,7 @@ export function createReplicationService(db: TrendspekDatabase) {
       isRunning = true
       status.value = 'synced'
       onStatusChange?.('synced')
+      console.log('[Replication] setPaused(false) — resuming replication')
       return
     }
 
@@ -40,21 +40,35 @@ export function createReplicationService(db: TrendspekDatabase) {
       pull: {
         handler: async (lastPulledCheckpoint: CheckpointType | undefined, _batchSize: number) => {
           try {
+            console.log('[Pull] handler called — checkpoint:', lastPulledCheckpoint)
             const res = await fetch(`${API_BASE}/sync/pull`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ checkpoint: lastPulledCheckpoint })
             })
+            console.log('[Pull] response status:', res.status)
             if (!res.ok) {
               throw new Error(`Pull failed: ${res.status} ${res.statusText}`)
             }
             const data = await res.json() as { documents: DefectAnnotation[]; checkpoint: string }
+            console.log('[Pull] got', data.documents.length, 'documents, checkpoint:', data.checkpoint)
+
+            if (status.value === 'offline' && Date.now() - lastErrorTime > 2000) {
+              status.value = 'synced'
+              onStatusChange?.('synced')
+            }
+
             return {
               documents: data.documents.map(d => ({ ...d, _deleted: false })),
               checkpoint: data.checkpoint
             }
           } catch (err) {
-            handlerErrorSubject.next()
+            console.log('[Pull] handler error:', err)
+            lastErrorTime = Date.now()
+            if (status.value !== 'offline') {
+              status.value = 'offline'
+              onStatusChange?.('offline')
+            }
             throw err
           }
         },
@@ -63,28 +77,41 @@ export function createReplicationService(db: TrendspekDatabase) {
       push: {
         handler: async (docs: any[]) => {
           try {
+            console.log('[Push] handler called — docs:', docs.length)
             const res = await fetch(`${API_BASE}/sync/push`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ documents: docs })
             })
+            console.log('[Push] response status:', res.status)
             if (!res.ok) {
               throw new Error(`Push failed: ${res.status} ${res.statusText}`)
             }
+
+            if (status.value === 'offline' && Date.now() - lastErrorTime > 2000) {
+              status.value = 'synced'
+              onStatusChange?.('synced')
+            }
+
             return []
           } catch (err) {
-            handlerErrorSubject.next()
+            console.log('[Push] handler error:', err)
+            lastErrorTime = Date.now()
+            if (status.value !== 'offline') {
+              status.value = 'offline'
+              onStatusChange?.('offline')
+            }
             throw err
           }
         }
       }
     })
+    console.log('[Replication] replicateRxCollection resolved')
 
-    // error$ — emitted by RxDB when replication encounters an error.
     if (replicationState && 'error$' in replicationState) {
       const error$ = (replicationState as any).error$
       if (error$ && typeof error$.subscribe === 'function') {
-        error$.subscribe((err: any) => {
+        errorSub = error$.subscribe((err: any) => {
           console.log('[Replication] error$ emitted:', err)
           lastErrorTime = Date.now()
           if (status.value !== 'offline') {
@@ -95,64 +122,52 @@ export function createReplicationService(db: TrendspekDatabase) {
       }
     }
 
-    // handlerErrorSubject — fires when our fetch handlers fail (server unreachable).
-    handlerErrorSubscription = handlerErrorSubject.subscribe(() => {
-      lastErrorTime = Date.now()
-      if (status.value !== 'offline') {
-        status.value = 'offline'
-        onStatusChange?.('offline')
-      }
-    })
-
-    // Health check — independent of RxDB's handler calling behavior.
-    // Pings the server every 5s to detect downtime and recovery.
-    healthCheckIntervalId = setInterval(async () => {
-      let timedOut = false
-      const controller = new AbortController()
-      const timeoutId = setTimeout(() => {
-        timedOut = true
-        controller.abort()
-      }, 2000)
-      try {
-        const res = await fetch(`${API_BASE}/api/health`, {
-          method: 'GET',
-          signal: controller.signal
-        })
-        if (!timedOut && res.ok) {
-          // Server is reachable
-          if (status.value === 'offline' && Date.now() - lastErrorTime > 5000) {
-            lastErrorTime = -1
-            status.value = 'synced'
-            onStatusChange?.('synced')
-          }
+    if (typeof window !== 'undefined' && window.addEventListener) {
+      const getNavOnline = () => ((typeof window !== 'undefined' && window.navigator?.onLine) ?? true)
+      onlineHandler = () => {
+        console.log('[Replication] navigator online event — navOnline:', getNavOnline())
+        if (status.value === 'offline' && Date.now() - lastErrorTime > 2000) {
+          status.value = 'synced'
+          onStatusChange?.('synced')
         }
-      } catch {
-        // Server is not reachable (or timed out)
-        lastErrorTime = Date.now()
+      }
+      offlineHandler = () => {
+        console.log('[Replication] navigator offline event — navOnline:', getNavOnline())
         if (status.value !== 'offline') {
           status.value = 'offline'
           onStatusChange?.('offline')
         }
-      } finally {
-        clearTimeout(timeoutId)
       }
-    }, 5000)
+      window.addEventListener('online', onlineHandler)
+      window.addEventListener('offline', offlineHandler)
+    }
 
     await replicationState.start()
     isRunning = true
-    status.value = 'synced'
-    console.log('[Replication] status set to synced, calling onStatusChange')
-    onStatusChange?.('synced')
+    console.log('[Replication] replicationState.start() complete')
+  }
+
+  function setPaused(paused: boolean) {
+    if (!replicationState) return
+    if (paused) {
+      replicationState.pause()
+      status.value = 'offline'
+      onStatusChange?.('offline')
+    } else {
+      replicationState.start()
+      status.value = 'synced'
+      onStatusChange?.('synced')
+    }
   }
 
   function destroy() {
-    if (healthCheckIntervalId) {
-      clearInterval(healthCheckIntervalId)
-      healthCheckIntervalId = null
+    if (errorSub) {
+      errorSub.unsubscribe()
+      errorSub = null
     }
-    if (handlerErrorSubscription) {
-      handlerErrorSubscription.unsubscribe()
-      handlerErrorSubscription = null
+    if (typeof window !== 'undefined' && window.removeEventListener) {
+      if (onlineHandler) window.removeEventListener('online', onlineHandler)
+      if (offlineHandler) window.removeEventListener('offline', offlineHandler)
     }
   }
 
@@ -168,6 +183,7 @@ export function createReplicationService(db: TrendspekDatabase) {
     },
     start,
     destroy,
+    setPaused,
     set onStatusChange(cb: (newStatus: 'synced' | 'offline') => void) {
       console.log('[Replication] onStatusChange setter called')
       onStatusChange = cb

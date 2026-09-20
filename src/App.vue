@@ -1,7 +1,10 @@
 <template>
   <v-app class="trendspek-app">
     <!-- Top App Bar -->
-    <AppHeader :replication-status="replicationStatus" />
+    <AppHeader
+      :replication-status="replicationStatus"
+      @toggle-online-override="toggleOnlineOverride"
+    />
 
     <!-- Main Viewport Area -->
     <v-main class="main-viewport-container">
@@ -126,6 +129,12 @@ const cesiumViewerRef = ref<InstanceType<typeof CesiumViewer> | null>(null)
 // Replication service
 const replicationService = ref<any>(null)
 const replicationStatus = ref<'synced' | 'offline'>('offline')
+
+function toggleOnlineOverride() {
+  if (!replicationService.value) return
+  const isOffline = replicationStatus.value === 'offline'
+  replicationService.value.setPaused(!isOffline)
+}
 
 // RxDB Database instance & reactive datasets
 let db: TrendspekDatabase | null = null

@@ -5,11 +5,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Health check endpoint for replication status monitoring
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok' });
-});
-
 // RxDB replication: pull changes from server
 app.post('/sync/pull', (req, res) => {
   const { checkpoint } = req.body as { checkpoint?: string };

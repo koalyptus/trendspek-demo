@@ -90,6 +90,24 @@
           Drop Defect Pin
         </v-btn>
       </v-btn-toggle>
+
+      <v-btn
+        size="small"
+        variant="text"
+        color="secondary"
+        class="ml-1"
+        @click="$emit('toggle-online-override')"
+        title="Toggle online/offline replication"
+      >
+        <v-icon
+          :icon="props.replicationStatus === 'synced' ? 'mdi-cloud-check' : 'mdi-cloud-off-outline'"
+          size="16"
+          class="mr-1"
+        ></v-icon>
+        <span class="text-caption font-weight-medium" style="font-size: 0.72rem !important;">
+          {{ props.replicationStatus === 'synced' ? 'Online' : 'Offline' }}
+        </span>
+      </v-btn>
     </div>
 
     <v-spacer></v-spacer>
@@ -204,6 +222,7 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'reset-demo'): void
   (e: 'change-asset', assetId: string): void
+  (e: 'toggle-online-override'): void
 }>()
 
 function handleAssetSelect(assetId: string) {
