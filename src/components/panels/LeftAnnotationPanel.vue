@@ -26,7 +26,7 @@
             icon="mdi-chevron-left"
             variant="text"
             size="small"
-            class="ml-1"
+            class="ml-1 text-white"
             @click="uiStore.toggleLeftPanel"
           ></v-btn>
         </div>

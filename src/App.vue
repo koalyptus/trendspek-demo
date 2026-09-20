@@ -128,12 +128,12 @@ const cesiumViewerRef = ref<InstanceType<typeof CesiumViewer> | null>(null)
 
 // Replication service
 const replicationService = ref<any>(null)
-const replicationStatus = ref<'synced' | 'offline'>('offline')
+const replicationStatus = ref<'synced' | 'unsynced'>('unsynced')
 
 function toggleOnlineOverride() {
   if (!replicationService.value) return
-  const isOffline = replicationStatus.value === 'offline'
-  replicationService.value.setPaused(!isOffline)
+  const isUnsynced = replicationStatus.value === 'unsynced'
+  replicationService.value.setPaused(!isUnsynced)
 }
 
 // RxDB Database instance & reactive datasets
@@ -196,18 +196,18 @@ onMounted(async () => {
     // 3. Start live replication with backend (stub — no persistence)
     try {
       replicationService.value = createReplicationService(db)
-      replicationService.value.onStatusChange = (newStatus: 'synced' | 'offline') => {
+      replicationService.value.onStatusChange = (newStatus: 'synced' | 'unsynced') => {
         replicationStatus.value = newStatus
         console.log(`[Replication Status] ${newStatus}`)
-        if (newStatus === 'offline') {
-          notify('Backend unreachable — running offline', 'warning', 'mdi-cloud-off-outline')
+        if (newStatus === 'unsynced') {
+          notify('Backend unreachable — not syncing', 'warning', 'mdi-cloud-off-outline')
         }
       }
-      replicationService.value.onPushSuccess = (docId: string) => {
-        const doc = annotations.value.find(a => a.id === docId)
-        if (doc) {
-          notify(`"${doc.title}" — changes successfully persisted on server`, 'success', 'mdi-cloud-check')
-        }
+      replicationService.value.onPushSuccess = (docIds: string[]) => {
+        console.log('[Push] push success — doc IDs:', docIds)
+        const docs = annotations.value.filter(a => docIds.includes(a.id))
+        const titles = docs.map(d => `"${d.title}"`).join(', ')
+        notify(`${docs.length} annotation${docs.length !== 1 ? 's' : ''} persisted on server: ${titles}`, 'success', 'mdi-cloud-check')
       }
       await replicationService.value.start()
       replicationStatus.value = replicationService.value.status

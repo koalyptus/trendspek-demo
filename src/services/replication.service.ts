@@ -2,23 +2,34 @@ import { replicateRxCollection } from 'rxdb/plugins/replication'
 import type { RxReplicationState } from 'rxdb/plugins/replication'
 import type { TrendspekDatabase } from '@/database'
 import type { DefectAnnotation } from '@/types'
+import type { WithDeleted, RxReplicationWriteToMasterRow } from 'rxdb'
 import { ref } from 'vue'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
 
 type CheckpointType = string
 
+interface PushSuccessCallback {
+  (docIds: string[]): void
+}
+
+interface StatusChangeCallback {
+  (newStatus: 'synced' | 'unsynced'): void
+}
+
 export function createReplicationService(db: TrendspekDatabase) {
   let replicationState: RxReplicationState<DefectAnnotation, CheckpointType> | null = null
   let isRunning = false
-  const status = ref<'synced' | 'offline'>('offline')
-  let onStatusChange: ((newStatus: 'synced' | 'offline') => void) | null = null
-  let onPushSuccess: ((docId: string) => void) | null = null
+  const status = ref<'synced' | 'unsynced'>('unsynced')
+  let onStatusChange: StatusChangeCallback | null = null
+  let onPushSuccess: PushSuccessCallback | null = null
   let lastErrorTime: number = -1
-  let errorSub: any = null
-  let sentSub: any = null
-  let onlineHandler: ((...args: any[]) => void) | null = null
-  let offlineHandler: ((...args: any[]) => void) | null = null
+  let errorSub: { unsubscribe: () => void } | null = null
+  let sentSub: { unsubscribe: () => void } | null = null
+  let onlineHandler: (() => void) | null = null
+  let offlineHandler: (() => void) | null = null
+  let pendingPushIds: string[] = []
+  let pendingPushCount: number = 0
 
   async function start() {
     if (replicationState && !replicationState.isStoppedOrPaused()) {
@@ -40,7 +51,7 @@ export function createReplicationService(db: TrendspekDatabase) {
       replicationIdentifier: 'trendspek-annotations-replication',
       live: true,
       pull: {
-        handler: async (lastPulledCheckpoint: CheckpointType | undefined, _batchSize: number) => {
+        handler: async (lastPulledCheckpoint: CheckpointType | undefined, batchSize: number) => {
           try {
             console.log('[Pull] handler called — checkpoint:', lastPulledCheckpoint)
             const res = await fetch(`${API_BASE}/sync/pull`, {
@@ -55,7 +66,7 @@ export function createReplicationService(db: TrendspekDatabase) {
             const data = await res.json() as { documents: DefectAnnotation[]; checkpoint: string }
             console.log('[Pull] got', data.documents.length, 'documents, checkpoint:', data.checkpoint)
 
-            if (status.value === 'offline' && Date.now() - lastErrorTime > 2000) {
+            if (status.value === 'unsynced' && Date.now() - lastErrorTime > 2000) {
               status.value = 'synced'
               onStatusChange?.('synced')
             }
@@ -67,9 +78,9 @@ export function createReplicationService(db: TrendspekDatabase) {
           } catch (err) {
             console.log('[Pull] handler error:', err)
             lastErrorTime = Date.now()
-            if (status.value !== 'offline') {
-              status.value = 'offline'
-              onStatusChange?.('offline')
+            if (status.value !== 'unsynced') {
+              status.value = 'unsynced'
+              onStatusChange?.('unsynced')
             }
             throw err
           }
@@ -77,7 +88,7 @@ export function createReplicationService(db: TrendspekDatabase) {
         batchSize: 10
       },
       push: {
-        handler: async (docs: any[]) => {
+        handler: async (docs: RxReplicationWriteToMasterRow<DefectAnnotation>[]) => {
           try {
             console.log('[Push] handler called — docs:', docs.length)
             const res = await fetch(`${API_BASE}/sync/push`, {
@@ -90,18 +101,20 @@ export function createReplicationService(db: TrendspekDatabase) {
               throw new Error(`Push failed: ${res.status} ${res.statusText}`)
             }
 
-            if (status.value === 'offline' && Date.now() - lastErrorTime > 2000) {
+            pendingPushCount = docs.length
+            pendingPushIds = []
+
+            if (status.value === 'unsynced' && Date.now() - lastErrorTime > 2000) {
               status.value = 'synced'
               onStatusChange?.('synced')
             }
-
             return []
           } catch (err) {
             console.log('[Push] handler error:', err)
             lastErrorTime = Date.now()
-            if (status.value !== 'offline') {
-              status.value = 'offline'
-              onStatusChange?.('offline')
+            if (status.value !== 'unsynced') {
+              status.value = 'unsynced'
+              onStatusChange?.('unsynced')
             }
             throw err
           }
@@ -110,26 +123,31 @@ export function createReplicationService(db: TrendspekDatabase) {
     })
     console.log('[Replication] replicateRxCollection resolved')
 
-    if (replicationState && 'error$' in replicationState) {
-      const error$ = (replicationState as any).error$
+    if (replicationState) {
+      const error$ = replicationState.error$
       if (error$ && typeof error$.subscribe === 'function') {
-        errorSub = error$.subscribe((err: any) => {
+        errorSub = error$.subscribe((err: unknown) => {
           console.log('[Replication] error$ emitted:', err)
           lastErrorTime = Date.now()
-          if (status.value !== 'offline') {
-            status.value = 'offline'
-            onStatusChange?.('offline')
+          if (status.value !== 'unsynced') {
+            status.value = 'unsynced'
+            onStatusChange?.('unsynced')
           }
         })
       }
-    }
 
-    if (replicationState && 'sent$' in replicationState) {
-      const sent$ = (replicationState as any).sent$
+      const sent$ = replicationState.sent$
       if (sent$ && typeof sent$.subscribe === 'function') {
-        sentSub = sent$.subscribe((docData: any) => {
-          console.log('[Replication] push sent — docId:', docData.id)
-          onPushSuccess?.(docData.id)
+        sentSub = sent$.subscribe((docData: WithDeleted<DefectAnnotation>) => {
+          console.log('[Replication] sent$ emitted — docId:', docData.id)
+          pendingPushIds.push(docData.id)
+          pendingPushCount--
+          if (pendingPushCount <= 0) {
+            const ids = pendingPushIds
+            pendingPushIds = []
+            pendingPushCount = 0
+            onPushSuccess?.(ids)
+          }
         })
       }
     }
@@ -138,16 +156,16 @@ export function createReplicationService(db: TrendspekDatabase) {
       const getNavOnline = () => ((typeof window !== 'undefined' && window.navigator?.onLine) ?? true)
       onlineHandler = () => {
         console.log('[Replication] navigator online event — navOnline:', getNavOnline())
-        if (status.value === 'offline' && Date.now() - lastErrorTime > 2000) {
+        if (status.value === 'unsynced' && Date.now() - lastErrorTime > 2000) {
           status.value = 'synced'
           onStatusChange?.('synced')
         }
       }
       offlineHandler = () => {
         console.log('[Replication] navigator offline event — navOnline:', getNavOnline())
-        if (status.value !== 'offline') {
-          status.value = 'offline'
-          onStatusChange?.('offline')
+        if (status.value !== 'unsynced') {
+          status.value = 'unsynced'
+          onStatusChange?.('unsynced')
         }
       }
       window.addEventListener('online', onlineHandler)
@@ -163,8 +181,8 @@ export function createReplicationService(db: TrendspekDatabase) {
     if (!replicationState) return
     if (paused) {
       replicationState.pause()
-      status.value = 'offline'
-      onStatusChange?.('offline')
+      status.value = 'unsynced'
+      onStatusChange?.('unsynced')
     } else {
       replicationState.start()
       status.value = 'synced'
@@ -200,11 +218,11 @@ export function createReplicationService(db: TrendspekDatabase) {
     start,
     destroy,
     setPaused,
-    set onStatusChange(cb: (newStatus: 'synced' | 'offline') => void) {
+    set onStatusChange(cb: StatusChangeCallback) {
       console.log('[Replication] onStatusChange setter called')
       onStatusChange = cb
     },
-    set onPushSuccess(cb: (docId: string) => void) {
+    set onPushSuccess(cb: PushSuccessCallback) {
       onPushSuccess = cb
     }
   }

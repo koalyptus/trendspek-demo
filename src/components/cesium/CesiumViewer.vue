@@ -83,7 +83,6 @@
         </v-chip>
         <span class="font-weight-bold text-white">{{ hoveredAnnotation.title }}</span>
       </div>
-      <div class="text-disabled" style="font-size: 0.7rem;">Click to view inspection template</div>
     </div>
   </div>
 </template>
