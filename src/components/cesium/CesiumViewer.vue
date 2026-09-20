@@ -575,8 +575,6 @@ function flyToCoordinates(coords: [number, number, number]) {
     maximumHeight: cartographic.height + 200, // Limit max height to prevent space flyout
   })
 }
-  })
-}
 
 function focusCurrentAsset() {
   if (!viewer) return
