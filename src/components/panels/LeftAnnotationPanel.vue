@@ -213,6 +213,8 @@ function handleSelect(item: DefectAnnotation) {
 }
 
 function flyToAnnotation(item: DefectAnnotation) {
+  // Show tooltip on the 3D model for this annotation
+  uiStore.setHoveredAnnotation(item.id)
   emit('fly-to-annotation', item.positionXyz)
 }
 
