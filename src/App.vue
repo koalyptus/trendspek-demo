@@ -203,6 +203,12 @@ onMounted(async () => {
           notify('Backend unreachable — running offline', 'warning', 'mdi-cloud-off-outline')
         }
       }
+      replicationService.value.onPushSuccess = (docId: string) => {
+        const doc = annotations.value.find(a => a.id === docId)
+        if (doc) {
+          notify(`"${doc.title}" — changes successfully persisted on server`, 'success', 'mdi-cloud-check')
+        }
+      }
       await replicationService.value.start()
       replicationStatus.value = replicationService.value.status
       notify('Replication active — synced with server', 'success', 'mdi-cloud-check')
@@ -290,7 +296,6 @@ async function handleUpdateAnnotation(updated: DefectAnnotation) {
     const doc = await db.annotations.findOne(updated.id).exec()
     if (doc) {
       await doc.patch(updated)
-      notify('Changes saved to IndexedDB', 'success', 'mdi-content-save-check')
     }
   } catch (err) {
     console.error('Failed to update defect in RxDB:', err)

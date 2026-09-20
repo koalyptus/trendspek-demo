@@ -13,8 +13,10 @@ export function createReplicationService(db: TrendspekDatabase) {
   let isRunning = false
   const status = ref<'synced' | 'offline'>('offline')
   let onStatusChange: ((newStatus: 'synced' | 'offline') => void) | null = null
+  let onPushSuccess: ((docId: string) => void) | null = null
   let lastErrorTime: number = -1
   let errorSub: any = null
+  let sentSub: any = null
   let onlineHandler: ((...args: any[]) => void) | null = null
   let offlineHandler: ((...args: any[]) => void) | null = null
 
@@ -122,6 +124,16 @@ export function createReplicationService(db: TrendspekDatabase) {
       }
     }
 
+    if (replicationState && 'sent$' in replicationState) {
+      const sent$ = (replicationState as any).sent$
+      if (sent$ && typeof sent$.subscribe === 'function') {
+        sentSub = sent$.subscribe((docData: any) => {
+          console.log('[Replication] push sent — docId:', docData.id)
+          onPushSuccess?.(docData.id)
+        })
+      }
+    }
+
     if (typeof window !== 'undefined' && window.addEventListener) {
       const getNavOnline = () => ((typeof window !== 'undefined' && window.navigator?.onLine) ?? true)
       onlineHandler = () => {
@@ -165,6 +177,10 @@ export function createReplicationService(db: TrendspekDatabase) {
       errorSub.unsubscribe()
       errorSub = null
     }
+    if (sentSub) {
+      sentSub.unsubscribe()
+      sentSub = null
+    }
     if (typeof window !== 'undefined' && window.removeEventListener) {
       if (onlineHandler) window.removeEventListener('online', onlineHandler)
       if (offlineHandler) window.removeEventListener('offline', offlineHandler)
@@ -187,6 +203,9 @@ export function createReplicationService(db: TrendspekDatabase) {
     set onStatusChange(cb: (newStatus: 'synced' | 'offline') => void) {
       console.log('[Replication] onStatusChange setter called')
       onStatusChange = cb
+    },
+    set onPushSuccess(cb: (docId: string) => void) {
+      onPushSuccess = cb
     }
   }
 }
