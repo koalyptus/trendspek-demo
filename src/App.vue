@@ -1,7 +1,7 @@
 <template>
   <v-app class="trendspek-app">
     <!-- Top App Bar -->
-    <AppHeader />
+    <AppHeader :replication-status="replicationStatus" />
 
     <!-- Main Viewport Area -->
     <v-main class="main-viewport-container">
@@ -111,6 +111,7 @@
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import type { Subscription } from 'rxjs'
 import { getDatabase, type TrendspekDatabase } from '@/database'
+import { createReplicationService } from '@/services/replication.service'
 import { useUiStore } from '@/stores/ui.store'
 import type { DefectAnnotation, AnnotationTemplate, Severity } from '@/types'
 
@@ -121,6 +122,10 @@ import CesiumViewer from '@/components/cesium/CesiumViewer.vue'
 
 const uiStore = useUiStore()
 const cesiumViewerRef = ref<InstanceType<typeof CesiumViewer> | null>(null)
+
+// Replication service
+const replicationService = ref<any>(null)
+const replicationStatus = ref<'synced' | 'offline'>('offline')
 
 // RxDB Database instance & reactive datasets
 let db: TrendspekDatabase | null = null
@@ -178,6 +183,17 @@ onMounted(async () => {
     })
 
     notify('RxDB Local-First Database Initialized (IndexedDB)', 'success', 'mdi-database-check')
+
+    // 3. Start live replication with backend (stub — no persistence)
+    try {
+      replicationService.value = createReplicationService(db)
+      await replicationService.value.start()
+      replicationStatus.value = replicationService.value.status
+      notify('Replication active — synced with server', 'success', 'mdi-cloud-check')
+    } catch (err) {
+      console.error('[Replication Init Error]:', err)
+      notify('Backend unreachable — running offline', 'warning', 'mdi-cloud-off-outline')
+    }
   } catch (err) {
     console.error('[RxDB Init Error]:', err)
     notify('Database initialization warning. Using fallback.', 'warning', 'mdi-alert')
@@ -192,6 +208,9 @@ onBeforeUnmount(() => {
   if (templatesSub) {
     templatesSub.unsubscribe()
     templatesSub = null
+  }
+  if (replicationService.value) {
+    replicationService.value.stop()
   }
 })
 

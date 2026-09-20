@@ -102,12 +102,24 @@
             <div class="status-pulse mr-2"></div>
             <v-icon icon="mdi-database-check" size="16" color="success" class="mr-1"></v-icon>
             <span class="text-caption font-weight-bold text-success" style="font-size: 0.72rem !important;">
-              RxDB • IndexedDB Synced
+              RxDB · IndexedDB Synced
             </span>
           </div>
         </template>
       </v-tooltip>
     </div>
+
+    <!-- Replication Status Indicator -->
+    <v-tooltip :text="props.replicationStatus === 'synced' ? 'Replication active — changes synced with server' : 'Replication offline — running locally only'" location="bottom">
+      <template #activator="{ props: tooltipProps }">
+        <div v-bind="tooltipProps" class="d-flex align-center px-2 py-1 rounded-pill cursor-pointer" :style="props.replicationStatus === 'synced' ? 'background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);' : 'background: rgba(100, 100, 100, 0.12); border: 1px solid rgba(100, 100, 100, 0.3);'">
+          <v-icon :icon="props.replicationStatus === 'synced' ? 'mdi-cloud-check' : 'mdi-cloud-off-outline'" :color="props.replicationStatus === 'synced' ? 'success' : 'disabled'" size="16" class="mr-1"></v-icon>
+          <span class="text-caption font-weight-medium" :style="props.replicationStatus === 'synced' ? 'color: #10B981;' : 'color: #888888;'" style="font-size: 0.72rem !important;">
+            {{ props.replicationStatus === 'synced' ? 'Synced' : 'Offline' }}
+          </span>
+        </div>
+      </template>
+    </v-tooltip>
 
     <!-- Architecture Info Dialog Button -->
     <v-btn
@@ -201,6 +213,10 @@ import { useUiStore } from '@/stores/ui.store'
 
 const uiStore = useUiStore()
 const showInfoDialog = ref(false)
+
+const props = defineProps<{
+  replicationStatus: 'synced' | 'offline'
+}>()
 
 const emit = defineEmits<{
   (e: 'reset-demo'): void
