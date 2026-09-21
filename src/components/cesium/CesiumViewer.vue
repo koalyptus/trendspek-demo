@@ -168,16 +168,15 @@ watch(() => uiStore.hoveredAnnotationId, (annotationId) => {
 // Update tooltip position on every frame to keep it clamped to the pin during zoom/pan
 let preRenderHandler: (() => void) | null = null
 function startTooltipTracking() {
-  if (preRenderHandler) return
+  if (!viewer || preRenderHandler) return
   preRenderHandler = updateTooltipPosition
   viewer.scene.preRender.addEventListener(preRenderHandler)
 }
 
 function stopTooltipTracking() {
-  if (preRenderHandler && viewer) {
-    viewer.scene.preRender.removeEventListener(preRenderHandler)
-    preRenderHandler = null
-  }
+  if (!viewer || !preRenderHandler) return
+  viewer.scene.preRender.removeEventListener(preRenderHandler)
+  preRenderHandler = null
 }
 
 // Pin SVG generators for high contrast pins in dark mode
@@ -476,12 +475,19 @@ async function loadAssetModel(assetId: string) {
  * Synchronizes RxDB annotations into Cesium Billboard Entities
  * filtered by the active digital twin asset!
  */
-function syncAnnotationsToScene(annotations: DefectAnnotation[]) {
+function syncAnnotationsToScene(annotations: DefectAnnotation[], visibleIds?: Set<string>) {
   if (!viewer) return
 
   // Filter to annotations for current asset
   const assetAnnotations = annotations.filter((a) => a.assetId === uiStore.currentAssetId)
-  const currentIds = new Set(assetAnnotations.map((a) => a.id))
+
+  // Further restrict to IDs visible in the panel (after scrolling/filtering)
+  const activeAnnotations =
+    visibleIds && visibleIds.size > 0
+      ? assetAnnotations.filter((a) => visibleIds.has(a.id))
+      : assetAnnotations
+
+  const currentIds = new Set(activeAnnotations.map((a) => a.id))
 
   // Remove stale markers
   for (const [id, entity] of markerEntities.entries()) {
@@ -558,31 +564,32 @@ watch(
 )
 
 function flyToCoordinates(coords: [number, number, number]) {
-  if (!viewer) return
+  const localViewer = viewer
+  if (!localViewer) return
   const target = new Cesium.Cartesian3(coords[0], coords[1], coords[2])
-  
-  // Fly to a position above the target (100m above) to avoid going into space
+
   const aboveTarget = Cesium.Cartesian3.fromDegrees(
     Cesium.Cartographic.fromCartesian(target).longitude,
     Cesium.Cartographic.fromCartesian(target).latitude,
     Cesium.Cartographic.fromCartesian(target).height + 100
   )
-  
-  // Fly to the target with a smooth camera flight
-  viewer.camera.flyTo({
+
+  localViewer.camera.flyTo({
     destination: aboveTarget,
     orientation: {
-      heading: viewer.camera.heading,
+      heading: localViewer.camera.heading,
       pitch: Cesium.Math.toRadians(-45),
       roll: 0
     },
     duration: 1.5,
     complete: () => {
-      // After flight, look at the target from a fixed distance
-      const heading = viewer.camera.heading
+      const heading = localViewer.camera.heading
       const pitch = Cesium.Math.toRadians(-45)
-      const range = 80 // meters
-      viewer.camera.lookAt(Cesium.Cartesian3.clone(target), new Cesium.HeadingPitchRange(heading, pitch, range))
+      const range = 80
+      localViewer.camera.lookAt(
+        Cesium.Cartesian3.clone(target),
+        new Cesium.HeadingPitchRange(heading, pitch, range)
+      )
     }
   })
 }
@@ -632,7 +639,8 @@ function toggleWireframe() {
 defineExpose({
   flyToCoordinates,
   focusCurrentAsset,
-  loadAssetModel
+  loadAssetModel,
+  syncAnnotationsToScene
 })
 </script>
 

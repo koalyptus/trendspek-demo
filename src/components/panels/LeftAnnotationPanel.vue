@@ -16,7 +16,7 @@
           <div>
             <div class="text-subtitle-2 font-weight-bold text-white">Annotations</div>
             <div class="text-caption text-medium-emphasis" style="font-size: 0.72rem !important;">
-              {{ currentAssetAnnotations.length }} on {{ uiStore.currentAsset.name }}
+              {{ uiStore.currentAsset.name }}
             </div>
           </div>
         </div>
@@ -35,7 +35,7 @@
 
       <div class="pa-2 border-b">
         <v-text-field
-          v-model="searchQuery"
+          v-model="uiStore.searchQuery"
           placeholder="Filter defects by title or author..."
           density="compact"
           variant="solo-filled"
@@ -48,10 +48,14 @@
       </div>
 
       <!-- Annotations List Body -->
-      <div class="flex-grow-1 overflow-y-auto pa-2 list-container">
+      <div
+        ref="listContainerRef"
+        class="flex-grow-1 overflow-y-auto pa-2 list-container"
+        @scroll="onScroll"
+      >
         <!-- Empty State -->
         <div
-          v-if="filteredAnnotations.length === 0"
+          v-if="annotations.length === 0"
           class="d-flex flex-column align-center justify-center h-100 text-center py-10 px-4"
         >
           <v-avatar color="surface-variant" size="64" class="mb-3">
@@ -59,7 +63,7 @@
           </v-avatar>
           <div class="text-subtitle-2 font-weight-bold text-white mb-1">No Annotations Found</div>
           <div class="text-caption text-medium-emphasis mb-4" style="max-width: 240px;">
-            {{ searchQuery ? 'No defects match the search criteria.' : 'Click "New Defect" or click anywhere on the 3D model canvas to drop an inspection marker.' }}
+            {{ uiStore.searchQuery ? 'No defects match the search criteria.' : 'Click "New Defect" or click anywhere on the 3D model canvas to drop an inspection marker.' }}
           </div>
           <v-btn
             color="primary"
@@ -72,20 +76,24 @@
           </v-btn>
         </div>
 
-        <!-- Annotation Rows -->
-        <v-list class="bg-transparent pa-0" density="compact">
-          <v-slide-y-transition group>
+        <!-- Annotation Rows (virtualized) -->
+        <v-virtual-scroll
+          v-else
+          :items="annotations"
+          class="annotation-virtual-scroll"
+        >
+          <template #default="{ item }">
             <v-list-item
-              v-for="item in filteredAnnotations"
               :key="item.id"
-               :class="[
-                 'annotation-row mb-1 cursor-pointer rounded-lg',
-                 { 'active-row': uiStore.selectedAnnotationId === item.id }
-               ]"
-               :active="uiStore.selectedAnnotationId === item.id"
-               color="primary"
-                @click="handleSelect(item)"
-              >
+              :ref="measureItemHeight"
+              :class="[
+                'annotation-row mb-1 cursor-pointer rounded-lg',
+                { 'active-row': uiStore.selectedAnnotationId === item.id }
+              ]"
+              :active="uiStore.selectedAnnotationId === item.id"
+              color="primary"
+              @click="handleSelect(item)"
+            >
               <template #prepend>
                 <v-icon
                   :icon="getSeverityIcon(item.severity)"
@@ -125,52 +133,65 @@
                 </div>
               </template>
             </v-list-item>
-          </v-slide-y-transition>
-        </v-list>
+          </template>
+        </v-virtual-scroll>
       </div>
 
       <!-- Panel Footer -->
       <div class="pa-2 border-t bg-surface-variant d-flex align-center justify-space-between text-caption text-medium-emphasis">
+        <span class="text-white">Displayed: {{ visibleCount }}</span>
+        <span class="text-white">{{ totalForAsset }} total</span>
       </div>
     </div>
   </v-navigation-drawer>
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, onMounted, nextTick, watch } from 'vue'
 import { useUiStore } from '@/stores/ui.store'
 import type { DefectAnnotation, Severity, DefectStatus, AnnotationTemplate } from '@/types'
 
 const props = defineProps<{
   annotations: DefectAnnotation[]
   templates: AnnotationTemplate[]
+  totalForAsset: number
 }>()
 
 const emit = defineEmits<{
   (e: 'fly-to-annotation', coords: [number, number, number]): void
+  (e: 'visible-ids', ids: Set<string>): void
 }>()
 
 const uiStore = useUiStore()
-const searchQuery = ref('')
 
-// Asset-scoped annotations
-const currentAssetAnnotations = computed(() => {
-  return props.annotations.filter((item) => item.assetId === uiStore.currentAssetId)
-})
+const listContainerRef = ref<HTMLElement | null>(null)
+const measuredItemHeight = ref(0)
+const visibleCount = ref(0)
 
-// Filtered annotations based on search
-const filteredAnnotations = computed(() => {
-  return currentAssetAnnotations.value.filter((item) => {
-    if (searchQuery.value) {
-      const q = searchQuery.value.toLowerCase()
-      const titleMatch = item.title.toLowerCase().includes(q)
-      const descMatch = item.description?.toLowerCase().includes(q)
-      const authorMatch = item.author?.toLowerCase().includes(q)
-      return titleMatch || descMatch || authorMatch
-    }
-    return true
-  })
-})
+function measureItemHeight(el: any) {
+  if (el && measuredItemHeight.value === 0) {
+    measuredItemHeight.value = el.offsetHeight ?? 0
+  }
+  return el
+}
+
+function onScroll() {
+  if (!listContainerRef.value) return
+  const container = listContainerRef.value
+  const { scrollTop, clientHeight } = container
+  const itemHeight = measuredItemHeight.value || 52
+  const startIdx = Math.max(0, Math.floor(scrollTop / itemHeight) - 1)
+  const endIdx = Math.min(
+    props.annotations.length,
+    Math.ceil((scrollTop + clientHeight) / itemHeight) + 1
+  )
+  const visible = new Set<string>()
+  for (let i = startIdx; i < endIdx; i++) {
+    visible.add(props.annotations[i].id)
+  }
+  visibleCount.value = visible.size
+  emit('visible-ids', visible)
+}
 
 function getSeverityColor(sev: Severity): string {
   switch (sev) {
@@ -202,14 +223,11 @@ function getStatusColor(status: DefectStatus): string {
 }
 
 function handleSelect(item: DefectAnnotation) {
-  // Select annotation & show inspection template
   uiStore.selectAnnotation(item.id)
-  // Also show tooltip on the 3D model for this annotation
   uiStore.setHoveredAnnotation(item.id)
 }
 
 function flyToAnnotation(item: DefectAnnotation) {
-  // Show tooltip on the 3D model for this annotation
   uiStore.setHoveredAnnotation(item.id)
   emit('fly-to-annotation', item.positionXyz)
 }
@@ -217,6 +235,24 @@ function flyToAnnotation(item: DefectAnnotation) {
 function enableAddDefect() {
   uiStore.setActiveTool('add_annotation')
 }
+
+// --- Visible-ID tracking for 3D model sync ---
+
+function computeVisibleIds() {
+  onScroll()
+}
+
+onMounted(async () => {
+  await nextTick()
+  setTimeout(computeVisibleIds, 50)
+})
+
+watch(() => props.annotations, () => {
+  nextTick(() => setTimeout(computeVisibleIds, 50))
+}, { deep: true })
+watch(() => uiStore.searchQuery, () => {
+  nextTick(() => setTimeout(computeVisibleIds, 50))
+})
 </script>
 
 <style scoped>

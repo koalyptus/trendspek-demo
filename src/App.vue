@@ -10,16 +10,18 @@
     <v-main class="main-viewport-container">
       <!-- Left Panel: Annotations for current 3D Model asset -->
       <LeftAnnotationPanel
-        :annotations="annotations"
+        :annotations="filteredAnnotations"
         :templates="templates"
+        :total-for-asset="totalForAsset"
         @fly-to-annotation="handleFlyToAnnotation"
+        @visible-ids="setVisibleIds"
       />
 
       <!-- Center 3D Viewport: CesiumJS Canvas with Demo Building Structure -->
       <CesiumViewer
-        ref="cesiumViewerRef"
-        :annotations="annotations"
-        @add-annotation-at="handleAddAnnotationAtPosition"
+      ref="cesiumViewerRef"
+      :annotations="filteredAnnotations"
+      @add-annotation-at="handleAddAnnotationAtPosition"
       />
 
       <!-- Right Panel: Template and metadata for current selected annotation -->
@@ -111,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import type { Subscription } from 'rxjs'
 import { getDatabase, type TrendspekDatabase } from '@/database'
 import { createReplicationService, type ReplicationService } from '@/services/replication.service'
@@ -149,6 +151,36 @@ const selectedAnnotation = computed(() => {
   if (!uiStore.selectedAnnotationId) return null
   return annotations.value.find((a) => a.id === uiStore.selectedAnnotationId) || null
 })
+
+// Filtered annotations: current asset + search query — shared by panel and 3D viewer
+const filteredAnnotations = computed(() => {
+  const q = (uiStore.searchQuery ?? '').trim().toLowerCase()
+  return annotations.value.filter((a) => {
+    // Asset scope
+    if (a.assetId !== uiStore.currentAssetId) return false
+    // Search filter
+    if (q) {
+      const titleMatch = a.title.toLowerCase().includes(q)
+      const descMatch = a.description?.toLowerCase().includes(q)
+      const authorMatch = a.author?.toLowerCase().includes(q)
+      if (!titleMatch && !descMatch && !authorMatch) return false
+    }
+    return true
+  })
+})
+
+// DB total annotations for the current asset (unfiltered by search)
+const totalForAsset = computed(() =>
+  annotations.value.filter((a) => a.assetId === uiStore.currentAssetId).length
+)
+
+// IDs of annotations currently rendered in the virtual scroll viewport
+const visibleAnnotationIds = ref<Set<string>>(new Set())
+
+function setVisibleIds(ids: Set<string>) {
+  visibleAnnotationIds.value = ids
+  cesiumViewerRef.value?.syncAnnotationsToScene(filteredAnnotations.value, ids)
+}
 
 // New defect creation state
 const showNewDefectDialog = ref(false)
