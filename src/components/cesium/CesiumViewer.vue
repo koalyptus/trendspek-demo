@@ -498,7 +498,7 @@ function syncAnnotationsToScene(annotations: DefectAnnotation[], visibleIds?: Se
   }
 
   // Add or update markers
-  for (const annot of assetAnnotations) {
+  for (const annot of activeAnnotations) {
     const position = new Cesium.Cartesian3(
       annot.positionXyz[0],
       annot.positionXyz[1],
