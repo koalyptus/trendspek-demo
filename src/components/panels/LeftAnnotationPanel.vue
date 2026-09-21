@@ -26,7 +26,7 @@
             icon="mdi-chevron-left"
             variant="text"
             size="small"
-            class="ml-1"
+            class="ml-1 text-white"
             @click="uiStore.toggleLeftPanel"
           ></v-btn>
         </div>
@@ -131,10 +131,6 @@
 
       <!-- Panel Footer -->
       <div class="pa-2 border-t bg-surface-variant d-flex align-center justify-space-between text-caption text-medium-emphasis">
-        <span style="font-size: 0.7rem;">Live IndexedDB Sync</span>
-        <v-chip size="x-small" variant="text" color="primary" class="font-weight-medium">
-          60 FPS Main Thread Safe
-        </v-chip>
       </div>
     </div>
   </v-navigation-drawer>

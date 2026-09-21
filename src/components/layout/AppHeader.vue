@@ -90,24 +90,37 @@
           Drop Defect Pin
         </v-btn>
       </v-btn-toggle>
+
+      <v-btn
+        size="small"
+        variant="text"
+        color="secondary"
+        class="ml-1"
+        @click="$emit('toggle-online-override')"
+        title="Toggle online/offline replication"
+      >
+        <v-icon
+          :icon="props.replicationStatus === 'synced' ? 'mdi-cloud-check' : 'mdi-cloud-off-outline'"
+          size="16"
+          class="mr-1"
+        ></v-icon>
+        <span class="text-caption font-weight-medium" style="font-size: 0.72rem !important;">
+          {{ props.replicationStatus === 'synced' ? 'Online' : 'Offline' }}
+        </span>
+      </v-btn>
     </div>
 
     <v-spacer></v-spacer>
-
-    <!-- Architecture / Local-First Status Indicator -->
-    <div class="d-flex align-center mr-3">
-      <v-tooltip text="RxDB + IndexedDB (Dexie) is actively persisting annotations locally in your browser" location="bottom">
-        <template #activator="{ props }">
-          <div v-bind="props" class="d-flex align-center px-2 py-1 rounded-pill cursor-pointer" style="background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);">
-            <div class="status-pulse mr-2"></div>
-            <v-icon icon="mdi-database-check" size="16" color="success" class="mr-1"></v-icon>
-            <span class="text-caption font-weight-bold text-success" style="font-size: 0.72rem !important;">
-              RxDB • IndexedDB Synced
-            </span>
-          </div>
-        </template>
-      </v-tooltip>
-    </div>
+    <v-tooltip :text="props.replicationStatus === 'synced' ? 'Replication active — changes synced with server' : 'Replication unsynced — running locally only'" location="bottom">
+      <template #activator="{ props: tooltipProps }">
+        <div v-bind="tooltipProps" class="d-flex align-center px-2 py-1 rounded-pill cursor-pointer" :style="props.replicationStatus === 'synced' ? 'background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);' : 'background: rgba(100, 100, 100, 0.12); border: 1px solid rgba(100, 100, 100, 0.3);'">
+          <v-icon :icon="props.replicationStatus === 'synced' ? 'mdi-cloud-check' : 'mdi-cloud-off-outline'" :color="props.replicationStatus === 'synced' ? 'success' : 'disabled'" size="16" class="mr-1"></v-icon>
+          <span class="text-caption font-weight-medium" :style="props.replicationStatus === 'synced' ? 'color: #10B981;' : 'color: #888888;'" style="font-size: 0.72rem !important;">
+            {{ props.replicationStatus === 'synced' ? 'Synced' : 'Unsynced' }}
+          </span>
+        </div>
+      </template>
+    </v-tooltip>
 
     <!-- Architecture Info Dialog Button -->
     <v-btn
@@ -202,9 +215,14 @@ import { useUiStore } from '@/stores/ui.store'
 const uiStore = useUiStore()
 const showInfoDialog = ref(false)
 
+const props = defineProps<{
+  replicationStatus?: 'synced' | 'unsynced'
+}>()
+
 const emit = defineEmits<{
   (e: 'reset-demo'): void
   (e: 'change-asset', assetId: string): void
+  (e: 'toggle-online-override'): void
 }>()
 
 function handleAssetSelect(assetId: string) {
