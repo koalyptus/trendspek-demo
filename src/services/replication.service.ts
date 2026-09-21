@@ -17,6 +17,8 @@ interface StatusChangeCallback {
   (newStatus: 'synced' | 'unsynced'): void
 }
 
+export type ReplicationService = ReturnType<typeof createReplicationService>
+
 export function createReplicationService(db: TrendspekDatabase) {
   let replicationState: RxReplicationState<DefectAnnotation, CheckpointType> | null = null
   let isRunning = false
