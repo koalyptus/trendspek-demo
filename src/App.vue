@@ -203,10 +203,9 @@ onMounted(async () => {
           notify('Backend unreachable — not syncing', 'warning', 'mdi-cloud-off-outline')
         }
       }
-      replicationService.value.onPushSuccess = (docIds: string[]) => {
-        console.log('[Push] push success — doc IDs:', docIds)
-        const docs = annotations.value.filter(a => docIds.includes(a.id))
-        const titles = docs.map(d => `"${d.title}"`).join(', ')
+      replicationService.value.onPushSuccess = (docs: any[]) => {
+        console.log('[Push] push success — docs:', docs.length)
+        const titles = docs.map(d => `"${(d as any).title ?? d.id}"`).join(', ')
         notify(`${docs.length} annotation${docs.length !== 1 ? 's' : ''} persisted on server: ${titles}`, 'success', 'mdi-cloud-check')
       }
       await replicationService.value.start()

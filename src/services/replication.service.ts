@@ -10,7 +10,7 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
 type CheckpointType = string
 
 interface PushSuccessCallback {
-  (docIds: string[]): void
+  (docs: WithDeleted<DefectAnnotation>[]): void
 }
 
 interface StatusChangeCallback {
@@ -28,7 +28,7 @@ export function createReplicationService(db: TrendspekDatabase) {
   let sentSub: { unsubscribe: () => void } | null = null
   let onlineHandler: (() => void) | null = null
   let offlineHandler: (() => void) | null = null
-  let pendingPushIds: string[] = []
+  let pendingPushDocs: WithDeleted<DefectAnnotation>[] = []
   let pendingPushCount: number = 0
 
   async function start() {
@@ -102,7 +102,7 @@ export function createReplicationService(db: TrendspekDatabase) {
             }
 
             pendingPushCount = docs.length
-            pendingPushIds = []
+            pendingPushDocs = []
 
             if (status.value === 'unsynced' && Date.now() - lastErrorTime > 2000) {
               status.value = 'synced'
@@ -139,14 +139,14 @@ export function createReplicationService(db: TrendspekDatabase) {
       const sent$ = replicationState.sent$
       if (sent$ && typeof sent$.subscribe === 'function') {
         sentSub = sent$.subscribe((docData: WithDeleted<DefectAnnotation>) => {
-          console.log('[Replication] sent$ emitted — docId:', docData.id)
-          pendingPushIds.push(docData.id)
+          console.log('[Replication] sent$ emitted — docId:', docData.id, 'title:', docData.title)
+          pendingPushDocs.push(docData)
           pendingPushCount--
           if (pendingPushCount <= 0) {
-            const ids = pendingPushIds
-            pendingPushIds = []
+            const docs = pendingPushDocs
+            pendingPushDocs = []
             pendingPushCount = 0
-            onPushSuccess?.(ids)
+            onPushSuccess?.(docs)
           }
         })
       }

@@ -105,7 +105,7 @@
           class="mr-1"
         ></v-icon>
         <span class="text-caption font-weight-medium" style="font-size: 0.72rem !important;">
-          {{ props.replicationStatus === 'synced' ? 'Online' : 'Unsynced' }}
+          {{ props.replicationStatus === 'synced' ? 'Online' : 'Offline' }}
         </span>
       </v-btn>
     </div>
