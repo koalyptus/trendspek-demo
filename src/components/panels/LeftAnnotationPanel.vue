@@ -169,8 +169,9 @@ const measuredItemHeight = ref(0)
 const visibleCount = ref(0)
 
 function measureItemHeight(el: any) {
-  if (el && measuredItemHeight.value === 0) {
-    measuredItemHeight.value = el.offsetHeight ?? 0
+  const dom = (el as any)?.$el ?? el
+  if (dom && measuredItemHeight.value === 0) {
+    measuredItemHeight.value = dom.offsetHeight ?? 0
   }
   return el
 }

@@ -108,6 +108,8 @@ const cesiumContainer = ref<HTMLDivElement | null>(null)
 let viewer: Cesium.Viewer | null = null
 let handler: Cesium.ScreenSpaceEventHandler | null = null
 let markerEntities: Map<string, Cesium.Entity> = new Map()
+// Last visible-ID window reported by the left panel (undefined = not yet reported)
+let lastVisibleIds: Set<string> | undefined = undefined
 
 // Scene elements
 let realBuildingEntity: Cesium.Entity | null = null
@@ -250,7 +252,7 @@ onMounted(async () => {
   await loadAssetModel(uiStore.currentAssetId)
 
   // 5. Sync initial annotations from RxDB onto the 3D scene
-  syncAnnotationsToScene(props.annotations)
+  syncAnnotationsToScene(props.annotations, lastVisibleIds)
 
   // 6. Setup Screen Space Event Handler for interaction & depth picking
   setupEventHandlers(viewer)
@@ -407,7 +409,7 @@ async function loadAssetModel(assetId: string) {
   focusCurrentAsset()
 
   // 5. Re-sync annotation pins for this asset
-  syncAnnotationsToScene(props.annotations)
+  syncAnnotationsToScene(props.annotations, lastVisibleIds)
 }
 
   /**
@@ -478,12 +480,18 @@ async function loadAssetModel(assetId: string) {
 function syncAnnotationsToScene(annotations: DefectAnnotation[], visibleIds?: Set<string>) {
   if (!viewer) return
 
+  // Remember the last reported visibility window (even an EMPTY set) so it
+  // survives annotation mutations and asset switches. undefined = not yet reported.
+  if (visibleIds !== undefined) {
+    lastVisibleIds = visibleIds
+  }
+
   // Filter to annotations for current asset
   const assetAnnotations = annotations.filter((a) => a.assetId === uiStore.currentAssetId)
 
   // Further restrict to IDs visible in the panel (after scrolling/filtering)
   const activeAnnotations =
-    visibleIds && visibleIds.size > 0
+    visibleIds !== undefined
       ? assetAnnotations.filter((a) => visibleIds.has(a.id))
       : assetAnnotations
 
@@ -539,7 +547,7 @@ function syncAnnotationsToScene(annotations: DefectAnnotation[], visibleIds?: Se
 watch(
   () => props.annotations,
   (newAnnotations) => {
-    syncAnnotationsToScene(newAnnotations)
+    syncAnnotationsToScene(newAnnotations, lastVisibleIds)
   },
   { deep: true }
 )
