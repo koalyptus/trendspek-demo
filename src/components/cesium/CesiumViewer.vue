@@ -108,6 +108,8 @@ const cesiumContainer = ref<HTMLDivElement | null>(null)
 let viewer: Cesium.Viewer | null = null
 let handler: Cesium.ScreenSpaceEventHandler | null = null
 let markerEntities: Map<string, Cesium.Entity> = new Map()
+// Last visible-ID window reported by the left panel (undefined = not yet reported)
+let lastVisibleIds: Set<string> | undefined = undefined
 
 // Scene elements
 let realBuildingEntity: Cesium.Entity | null = null
@@ -168,16 +170,15 @@ watch(() => uiStore.hoveredAnnotationId, (annotationId) => {
 // Update tooltip position on every frame to keep it clamped to the pin during zoom/pan
 let preRenderHandler: (() => void) | null = null
 function startTooltipTracking() {
-  if (preRenderHandler) return
+  if (!viewer || preRenderHandler) return
   preRenderHandler = updateTooltipPosition
   viewer.scene.preRender.addEventListener(preRenderHandler)
 }
 
 function stopTooltipTracking() {
-  if (preRenderHandler && viewer) {
-    viewer.scene.preRender.removeEventListener(preRenderHandler)
-    preRenderHandler = null
-  }
+  if (!viewer || !preRenderHandler) return
+  viewer.scene.preRender.removeEventListener(preRenderHandler)
+  preRenderHandler = null
 }
 
 // Pin SVG generators for high contrast pins in dark mode
@@ -251,7 +252,7 @@ onMounted(async () => {
   await loadAssetModel(uiStore.currentAssetId)
 
   // 5. Sync initial annotations from RxDB onto the 3D scene
-  syncAnnotationsToScene(props.annotations)
+  syncAnnotationsToScene(props.annotations, lastVisibleIds)
 
   // 6. Setup Screen Space Event Handler for interaction & depth picking
   setupEventHandlers(viewer)
@@ -408,7 +409,7 @@ async function loadAssetModel(assetId: string) {
   focusCurrentAsset()
 
   // 5. Re-sync annotation pins for this asset
-  syncAnnotationsToScene(props.annotations)
+  syncAnnotationsToScene(props.annotations, lastVisibleIds)
 }
 
   /**
@@ -476,12 +477,25 @@ async function loadAssetModel(assetId: string) {
  * Synchronizes RxDB annotations into Cesium Billboard Entities
  * filtered by the active digital twin asset!
  */
-function syncAnnotationsToScene(annotations: DefectAnnotation[]) {
+function syncAnnotationsToScene(annotations: DefectAnnotation[], visibleIds?: Set<string>) {
   if (!viewer) return
+
+  // Remember the last reported visibility window (even an EMPTY set) so it
+  // survives annotation mutations and asset switches. undefined = not yet reported.
+  if (visibleIds !== undefined) {
+    lastVisibleIds = visibleIds
+  }
 
   // Filter to annotations for current asset
   const assetAnnotations = annotations.filter((a) => a.assetId === uiStore.currentAssetId)
-  const currentIds = new Set(assetAnnotations.map((a) => a.id))
+
+  // Further restrict to IDs visible in the panel (after scrolling/filtering)
+  const activeAnnotations =
+    visibleIds !== undefined
+      ? assetAnnotations.filter((a) => visibleIds.has(a.id))
+      : assetAnnotations
+
+  const currentIds = new Set(activeAnnotations.map((a) => a.id))
 
   // Remove stale markers
   for (const [id, entity] of markerEntities.entries()) {
@@ -492,7 +506,7 @@ function syncAnnotationsToScene(annotations: DefectAnnotation[]) {
   }
 
   // Add or update markers
-  for (const annot of assetAnnotations) {
+  for (const annot of activeAnnotations) {
     const position = new Cesium.Cartesian3(
       annot.positionXyz[0],
       annot.positionXyz[1],
@@ -533,7 +547,7 @@ function syncAnnotationsToScene(annotations: DefectAnnotation[]) {
 watch(
   () => props.annotations,
   (newAnnotations) => {
-    syncAnnotationsToScene(newAnnotations)
+    syncAnnotationsToScene(newAnnotations, lastVisibleIds)
   },
   { deep: true }
 )
@@ -558,31 +572,32 @@ watch(
 )
 
 function flyToCoordinates(coords: [number, number, number]) {
-  if (!viewer) return
+  const localViewer = viewer
+  if (!localViewer) return
   const target = new Cesium.Cartesian3(coords[0], coords[1], coords[2])
-  
-  // Fly to a position above the target (100m above) to avoid going into space
+
   const aboveTarget = Cesium.Cartesian3.fromDegrees(
     Cesium.Cartographic.fromCartesian(target).longitude,
     Cesium.Cartographic.fromCartesian(target).latitude,
     Cesium.Cartographic.fromCartesian(target).height + 100
   )
-  
-  // Fly to the target with a smooth camera flight
-  viewer.camera.flyTo({
+
+  localViewer.camera.flyTo({
     destination: aboveTarget,
     orientation: {
-      heading: viewer.camera.heading,
+      heading: localViewer.camera.heading,
       pitch: Cesium.Math.toRadians(-45),
       roll: 0
     },
     duration: 1.5,
     complete: () => {
-      // After flight, look at the target from a fixed distance
-      const heading = viewer.camera.heading
+      const heading = localViewer.camera.heading
       const pitch = Cesium.Math.toRadians(-45)
-      const range = 80 // meters
-      viewer.camera.lookAt(Cesium.Cartesian3.clone(target), new Cesium.HeadingPitchRange(heading, pitch, range))
+      const range = 80
+      localViewer.camera.lookAt(
+        Cesium.Cartesian3.clone(target),
+        new Cesium.HeadingPitchRange(heading, pitch, range)
+      )
     }
   })
 }
@@ -632,7 +647,8 @@ function toggleWireframe() {
 defineExpose({
   flyToCoordinates,
   focusCurrentAsset,
-  loadAssetModel
+  loadAssetModel,
+  syncAnnotationsToScene
 })
 </script>
 
