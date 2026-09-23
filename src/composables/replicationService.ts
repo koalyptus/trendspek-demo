@@ -1,4 +1,3 @@
-import { onBeforeUnmount } from 'vue'
 import { createReplicationService } from '@/services/replication.service'
 import { type TrendspekDatabase } from '@/database'
 
@@ -29,12 +28,6 @@ export function useReplicationService(db: TrendspekDatabase, notify: (text: stri
   }
 
   start()
-
-  onBeforeUnmount(() => {
-    if (replicationService) {
-      replicationService.destroy()
-    }
-  })
 
   return { replicationService, replicationStatus: replicationService.status }
 }

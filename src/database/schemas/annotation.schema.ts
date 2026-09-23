@@ -2,7 +2,7 @@ import type { RxJsonSchema } from 'rxdb'
 import type { DefectAnnotation } from '@/types'
 
 export const annotationSchemaLiteral: RxJsonSchema<DefectAnnotation> = {
-  version: 0,
+  version: 1,
   primaryKey: 'id',
   type: 'object',
   properties: {
@@ -44,10 +44,12 @@ export const annotationSchemaLiteral: RxJsonSchema<DefectAnnotation> = {
     },
     createdAt: {
       type: 'string',
+      format: 'date-time',
       maxLength: 64
     },
     updatedAt: {
       type: 'string',
+      format: 'date-time',
       maxLength: 64
     }
   },

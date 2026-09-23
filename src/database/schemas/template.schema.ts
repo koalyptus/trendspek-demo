@@ -2,7 +2,7 @@ import type { RxJsonSchema } from 'rxdb'
 import type { AnnotationTemplate } from '@/types'
 
 export const templateSchemaLiteral: RxJsonSchema<AnnotationTemplate> = {
-  version: 0,
+  version: 1,
   primaryKey: 'id',
   type: 'object',
   properties: {
@@ -30,10 +30,12 @@ export const templateSchemaLiteral: RxJsonSchema<AnnotationTemplate> = {
     },
     createdAt: {
       type: 'string',
+      format: 'date-time',
       maxLength: 64
     },
     updatedAt: {
       type: 'string',
+      format: 'date-time',
       maxLength: 64
     }
   },

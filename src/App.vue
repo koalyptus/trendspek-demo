@@ -113,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, type Ref } from 'vue'
+import { ref, computed, watch, onBeforeUnmount, type Ref } from 'vue'
 import { type TrendspekDatabase } from '@/database'
 import { type ReplicationService } from '@/services/replication.service'
 import { useUiStore } from '@/stores/ui.store'
@@ -147,6 +147,12 @@ watch(ready, (dbReady: boolean) => {
     replicationStatus = replSvc.replicationStatus
   }
 }, { immediate: true })
+
+onBeforeUnmount(() => {
+  if (replicationService) {
+    replicationService.destroy()
+  }
+})
 
 // Selected annotation for Right Panel
 const selectedAnnotation = computed(() => {

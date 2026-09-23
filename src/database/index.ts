@@ -3,11 +3,14 @@ import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie'
 import { wrappedValidateAjvStorage } from 'rxdb/plugins/validate-ajv'
 import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode'
 import { RxDBUpdatePlugin } from 'rxdb/plugins/update'
+import { RxDBMigrationSchemaPlugin } from 'rxdb/plugins/migration-schema';
 import type { RxCollection, RxDatabase } from 'rxdb'
 import { annotationSchemaLiteral } from './schemas/annotation.schema'
 import { templateSchemaLiteral } from './schemas/template.schema'
 import { defaultTemplates } from './defaultData'
 import type { DefectAnnotation, AnnotationTemplate } from '@/types'
+import { annotationMigrations } from './migrations/annotation.migrations'
+import { templateMigrations } from './migrations/template.migrations'
 
 const DBNAME = 'trendspek_db'
 
@@ -18,6 +21,8 @@ addRxPlugin(RxDBUpdatePlugin)
 if (import.meta.env?.DEV) {
   addRxPlugin(RxDBDevModePlugin)
 }
+
+addRxPlugin(RxDBMigrationSchemaPlugin)
 
 export type AnnotationCollection = RxCollection<DefectAnnotation>
 export type TemplateCollection = RxCollection<AnnotationTemplate>
@@ -53,10 +58,12 @@ async function initDatabase(): Promise<TrendspekDatabase> {
   // Add collections
   await db.addCollections({
     annotations: {
-      schema: annotationSchemaLiteral
+      schema: annotationSchemaLiteral,
+      migrationStrategies: annotationMigrations
     },
     templates: {
-      schema: templateSchemaLiteral
+      schema: templateSchemaLiteral,
+      migrationStrategies: templateMigrations
     }
   })
 
