@@ -113,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch, type Ref, toValue } from 'vue'
+import { ref, computed, watch, type Ref } from 'vue'
 import { type TrendspekDatabase } from '@/database'
 import { type ReplicationService } from '@/services/replication.service'
 import { useUiStore } from '@/stores/ui.store'
