@@ -26,9 +26,7 @@ app.post('/sync/push', (req, res) => {
   console.log(`[Push] documentCount=${documents?.length ?? 0}`);
 
   // Stub: accept anything, return success ack
-  res.json({
-    status: 'success'
-  });
+  res.json([]);
 });
 
 const PORT = process.env.PORT || 3001;

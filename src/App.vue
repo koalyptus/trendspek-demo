@@ -113,12 +113,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import type { Subscription } from 'rxjs'
-import { getDatabase, type TrendspekDatabase } from '@/database'
-import { createReplicationService, type ReplicationService } from '@/services/replication.service'
+import { ref, computed, watch, type Ref } from 'vue'
+import { type TrendspekDatabase } from '@/database'
+import { type ReplicationService } from '@/services/replication.service'
 import { useUiStore } from '@/stores/ui.store'
-import type { DefectAnnotation, AnnotationTemplate, Severity } from '@/types'
+import type { ReplicationStatus, DefectAnnotation, Severity } from '@/types'
+import { useDb } from '@/composables/database'
+import { useReplicationService } from '@/composables/replicationService'
 
 import AppHeader from '@/components/layout/AppHeader.vue'
 import LeftAnnotationPanel from '@/components/panels/LeftAnnotationPanel.vue'
@@ -130,21 +131,22 @@ const cesiumViewerRef = ref<InstanceType<typeof CesiumViewer> | null>(null)
 
 // Replication service
 let replicationService: ReplicationService | null = null
-const replicationStatus = ref<'synced' | 'unsynced'>('unsynced')
-
-function toggleOnlineOverride() {
-  if (!replicationService) return
-  const isUnsynced = replicationStatus.value === 'unsynced'
-  replicationService.setPaused(!isUnsynced)
-}
+let replicationStatus: Ref<ReplicationStatus>
 
 // RxDB Database instance & reactive datasets
+const dbComposition = useDb(notify)
+const { annotations, ready, templates } = dbComposition
 let db: TrendspekDatabase | null = null
-let annotationsSub: Subscription | null = null
-let templatesSub: Subscription | null = null
 
-const annotations = ref<DefectAnnotation[]>([])
-const templates = ref<AnnotationTemplate[]>([])
+watch(ready, (dbReady: boolean) => {
+  if (dbReady) {
+    db = dbComposition.db()
+
+    const replSvc = useReplicationService(db!, notify)
+    replicationService = replSvc.replicationService
+    replicationStatus = replSvc.replicationStatus
+  }
+}, { immediate: true })
 
 // Selected annotation for Right Panel
 const selectedAnnotation = computed(() => {
@@ -208,65 +210,6 @@ function notify(text: string, color: string = 'success', icon: string = 'mdi-che
   snackbar.value = { show: true, text, color, icon }
 }
 
-onMounted(async () => {
-  try {
-    // 1. Initialize RxDB Local-First Database
-    db = await getDatabase()
-
-    // 2. Subscribe to RxDB Live Queries (Observable Streams)
-    // RxDB handles IndexedDB persistence; components reactively receive mutations
-    annotationsSub = db.annotations.find().$.subscribe((docs) => {
-      annotations.value = docs.map((d) => d.toJSON() as DefectAnnotation)
-    })
-
-    templatesSub = db.templates.find().$.subscribe((docs) => {
-      templates.value = docs.map((d) => d.toJSON() as AnnotationTemplate)
-    })
-
-    notify('RxDB Local-First Database Initialized (IndexedDB)', 'success', 'mdi-database-check')
-
-    // 3. Start live replication with backend (stub — no persistence)
-    try {
-      replicationService = createReplicationService(db)
-      replicationService.onStatusChange = (newStatus: 'synced' | 'unsynced') => {
-        replicationStatus.value = newStatus
-        console.log(`[Replication Status] ${newStatus}`)
-        if (newStatus === 'unsynced') {
-          notify('Backend unreachable — not syncing', 'warning', 'mdi-cloud-off-outline')
-        }
-      }
-      replicationService.onPushSuccess = (docs: any[]) => {
-        console.log('[Push] push success — docs:', docs.length)
-        const titles = docs.map(d => `"${(d as any).title ?? d.id}"`).join(', ')
-        notify(`${docs.length} annotation${docs.length !== 1 ? 's' : ''} persisted on server: ${titles}`, 'success', 'mdi-cloud-check')
-      }
-      await replicationService.start()
-      replicationStatus.value = replicationService.statusValue
-      notify('Replication active — synced with server', 'success', 'mdi-cloud-check')
-    } catch (err) {
-      console.error('[Replication Init Error]:', err)
-      notify('Backend unreachable — running offline', 'warning', 'mdi-cloud-off-outline')
-    }
-  } catch (err) {
-    console.error('[RxDB Init Error]:', err)
-    notify('Database initialization warning. Using fallback.', 'warning', 'mdi-alert')
-  }
-})
-
-onBeforeUnmount(() => {
-  if (annotationsSub) {
-    annotationsSub.unsubscribe()
-    annotationsSub = null
-  }
-  if (templatesSub) {
-    templatesSub.unsubscribe()
-    templatesSub = null
-  }
-  if (replicationService) {
-    replicationService.destroy()
-  }
-})
-
 function handleFlyToAnnotation(coords: [number, number, number]) {
   if (cesiumViewerRef.value) {
     cesiumViewerRef.value.flyToCoordinates(coords)
@@ -293,6 +236,7 @@ async function confirmAddDefect() {
   }
 
   const newId = `defect-${Date.now()}`
+
   const newDefect: DefectAnnotation = {
     id: newId,
     assetId: uiStore.currentAssetId,
@@ -349,6 +293,11 @@ async function handleDeleteAnnotation(id: string) {
   }
 }
 
+function toggleOnlineOverride() {
+  if (!replicationService) return
+  const isUnsynced = replicationService.status.value === 'unsynced'
+  replicationService.setPaused(!isUnsynced)
+}
 </script>
 
 <style>

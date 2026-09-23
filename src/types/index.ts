@@ -1,5 +1,6 @@
 export type Severity = 'low' | 'medium' | 'high' | 'critical'
 export type DefectStatus = 'open' | 'in_progress' | 'resolved'
+export type ReplicationStatus = 'synced' | 'unsynced'
 
 export interface TemplateField {
   key: string
