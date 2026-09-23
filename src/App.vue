@@ -113,12 +113,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, type Ref } from 'vue'
-import type { Subscription } from 'rxjs'
-import { getDatabase, type TrendspekDatabase } from '@/database'
+import { ref, computed, onMounted, onBeforeUnmount, watch, type Ref, toValue } from 'vue'
+import { type TrendspekDatabase } from '@/database'
 import { type ReplicationService } from '@/services/replication.service'
 import { useUiStore } from '@/stores/ui.store'
-import type { ReplicationStatus, DefectAnnotation, AnnotationTemplate, Severity } from '@/types'
+import type { ReplicationStatus, DefectAnnotation, Severity } from '@/types'
+import { useDb } from '@/composables/database'
 import { useReplicationService } from '@/composables/replicationService'
 
 import AppHeader from '@/components/layout/AppHeader.vue'
@@ -134,12 +134,19 @@ let replicationService: ReplicationService | null = null
 let replicationStatus: Ref<ReplicationStatus>
 
 // RxDB Database instance & reactive datasets
+const dbComposition = useDb(notify)
+const { annotations, ready, templates } = dbComposition
 let db: TrendspekDatabase | null = null
-let annotationsSub: Subscription | null = null
-let templatesSub: Subscription | null = null
 
-const annotations = ref<DefectAnnotation[]>([])
-const templates = ref<AnnotationTemplate[]>([])
+watch(ready, (dbReady: boolean) => {
+  if (dbReady) {
+    db = dbComposition.db()
+
+    const replSvc = useReplicationService(db!, notify)
+    replicationService = replSvc.replicationService
+    replicationStatus = replSvc.replicationStatus
+  }
+}, { immediate: true })
 
 // Selected annotation for Right Panel
 const selectedAnnotation = computed(() => {
@@ -203,47 +210,6 @@ function notify(text: string, color: string = 'success', icon: string = 'mdi-che
   snackbar.value = { show: true, text, color, icon }
 }
 
-onMounted(async () => {
-  try {
-    // 1. Initialize RxDB Local-First Database
-    db = await getDatabase()
-
-    // 2. Subscribe to RxDB Live Queries (Observable Streams)
-    // RxDB handles IndexedDB persistence; components reactively receive mutations
-    annotationsSub = db.annotations.find().$.subscribe((docs) => {
-      annotations.value = docs.map((d) => d.toJSON() as DefectAnnotation)
-    })
-
-    templatesSub = db.templates.find().$.subscribe((docs) => {
-      templates.value = docs.map((d) => d.toJSON() as AnnotationTemplate)
-    })
-
-    notify('RxDB Local-First Database Initialized (IndexedDB)', 'success', 'mdi-database-check')
-
-    // 3. Start live replication with backend (stub — no persistence)
-    const replSvc = useReplicationService(db, notify)
-    replicationService = replSvc.replicationService
-    replicationStatus = replSvc.replicationStatus
-  } catch (err) {
-    console.error('[RxDB Init Error]:', err)
-    notify('Database initialization warning. Using fallback.', 'warning', 'mdi-alert')
-  }
-})
-
-onBeforeUnmount(() => {
-  if (annotationsSub) {
-    annotationsSub.unsubscribe()
-    annotationsSub = null
-  }
-  if (templatesSub) {
-    templatesSub.unsubscribe()
-    templatesSub = null
-  }
-  if (replicationService) {
-    replicationService.destroy()
-  }
-})
-
 function handleFlyToAnnotation(coords: [number, number, number]) {
   if (cesiumViewerRef.value) {
     cesiumViewerRef.value.flyToCoordinates(coords)
@@ -270,6 +236,7 @@ async function confirmAddDefect() {
   }
 
   const newId = `defect-${Date.now()}`
+
   const newDefect: DefectAnnotation = {
     id: newId,
     assetId: uiStore.currentAssetId,
