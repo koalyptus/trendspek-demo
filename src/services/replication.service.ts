@@ -33,8 +33,7 @@ export function createReplicationService(db: TrendspekDatabase) {
   let sentSub: { unsubscribe: () => void } | null = null
   let onlineHandler: (() => void) | null = null
   let offlineHandler: (() => void) | null = null
-  let pendingPushDocs: WithDeleted<DefectAnnotation>[] = []
-  let pendingPushCount: number = 0
+  let pendingPush: { docs: WithDeleted<DefectAnnotation>[]; expected: number } = { docs: [], expected: 0 }
 
   async function start() {
     if (replicationState && !replicationState.isStoppedOrPaused()) {
@@ -144,8 +143,7 @@ export function createReplicationService(db: TrendspekDatabase) {
         throw new Error(`Push failed: ${res.status} ${res.statusText}`)
       }
 
-      pendingPushCount = docs.length
-      pendingPushDocs = []
+      pendingPush = { docs: [], expected: docs.length }
 
       if (status.value === 'unsynced' && Date.now() - lastErrorTime > 2000) {
         status.value = 'synced'
@@ -190,12 +188,10 @@ export function createReplicationService(db: TrendspekDatabase) {
     if (sent$ && typeof sent$.subscribe === 'function') {
       sentSub = sent$.subscribe((docData: WithDeleted<DefectAnnotation>) => {
         console.log('[Replication] sent$ emitted — docId:', docData.id, 'title:', docData.title)
-        pendingPushDocs.push(docData)
-        pendingPushCount--
-        if (pendingPushCount <= 0) {
-          const docs = pendingPushDocs
-          pendingPushDocs = []
-          pendingPushCount = 0
+        pendingPush.docs.push(docData)
+        if (pendingPush.docs.length >= pendingPush.expected) {
+          const docs = pendingPush.docs
+          pendingPush = { docs: [], expected: 0 }
           onPushSuccess?.(docs)
         }
       })
