@@ -96,41 +96,59 @@
       </v-card>
     </v-dialog>
 
-    <!-- Global Notification Snackbar -->
+    <!-- Global Notification Snackbar stack (vertically stacked) -->
     <v-snackbar
-      v-model="snackbar.show"
-      :color="snackbar.color"
-      timeout="3000"
-      location="bottom right"
+      v-for="(item, idx) in snackbarStack"
+      :key="item.id"
+      :model-value="item.show"
+      @update:model-value="closeSnackbar(item.id)"
+      :color="item.color"
+      :timeout="item.timeout === 0 ? 86400000 : item.timeout"
+      :style="item.positionStyle(idx)"
       rounded="lg"
+      closable
+      class="snackbar-stack"
     >
+      <template v-if="item.closable">
+        <v-icon icon="mdi-close" class="mr-2" size="18" @click="item.show = false"></v-icon>
+      </template>
       <div class="d-flex align-center">
-        <v-icon :icon="snackbar.icon" class="mr-2" size="18"></v-icon>
-        <span class="text-body-2 font-weight-medium">{{ snackbar.text }}</span>
+        <v-icon :icon="item.icon" class="mr-2" size="18"></v-icon>
+        <span class="text-body-2 font-weight-medium">{{ item.text }}</span>
       </div>
     </v-snackbar>
+
+    <!-- Push conflict resolution alert -->
+    <AlertPanel
+      v-if="conflictStore.activeConflict"
+      :active-conflict="conflictStore.activeConflict"
+      @dismiss="conflictStore.dismissConflict"
+      @use-server="(s) => handleResolveConflict(s, 'server')"
+      @keep-local="(l) => handleResolveConflict(l, 'local')"
+    />
   </v-app>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount, type Ref } from 'vue'
+import { ref, computed, watch, onBeforeUnmount, reactive, shallowRef, type Ref } from 'vue'
 import { type TrendspekDatabase } from '@/database'
 import { type ReplicationService } from '@/services/replication.service'
 import { useUiStore } from '@/stores/ui.store'
-import type { ReplicationStatus, DefectAnnotation, Severity } from '@/types'
+import type { ReplicationStatus, DefectAnnotation, Severity, SimulatePushMode, NotifyFn, NotifyOptions } from '@/types'
 import { useDb } from '@/composables/database'
-import { useReplicationService } from '@/composables/replicationService'
+import { useReplicationService } from '@/composables/replication'
 
 import AppHeader from '@/components/layout/AppHeader.vue'
 import LeftAnnotationPanel from '@/components/panels/LeftAnnotationPanel.vue'
 import RightTemplatePanel from '@/components/panels/RightTemplatePanel.vue'
 import CesiumViewer from '@/components/cesium/CesiumViewer.vue'
+import AlertPanel from '@/components/panels/AlertPanel.vue'
 
 const uiStore = useUiStore()
 const cesiumViewerRef = ref<InstanceType<typeof CesiumViewer> | null>(null)
 
-// Replication service
-let replicationService: ReplicationService | null = null
+// Replication service (shallowRef so watches below can track it reactively)
+const replicationService = shallowRef<ReplicationService | null>(null)
 let replicationStatus: Ref<ReplicationStatus>
 
 // RxDB Database instance & reactive datasets
@@ -143,16 +161,81 @@ watch(ready, (dbReady: boolean) => {
     db = dbComposition.db()
 
     const replSvc = useReplicationService(db!, notify)
-    replicationService = replSvc.replicationService
+    replicationService.value = replSvc.replicationService
     replicationStatus = replSvc.replicationStatus
   }
 }, { immediate: true })
 
 onBeforeUnmount(() => {
-  if (replicationService) {
-    replicationService.destroy()
+  if (replicationService.value) {
+    replicationService.value.destroy()
   }
 })
+
+// Conflict resolution state (session-only, transient UI)
+interface ConflictData {
+  serverState: DefectAnnotation
+  localState: DefectAnnotation
+  resolvedState: DefectAnnotation | null
+}
+
+interface ConflictStore {
+  activeConflict: ConflictData | null
+  dismissConflict(): void
+  setConflict(c: ConflictData | null): void
+}
+
+const conflictStore: ConflictStore = reactive<ConflictStore>({
+  activeConflict: null,
+  dismissConflict() {
+    this.activeConflict = null
+  },
+  setConflict(c: ConflictData | null) {
+    this.activeConflict = c
+  }
+})
+
+// Reactive sync: when the UI store's simulation mode changes,
+// propagate it to the replication service's push handler
+watch(
+  () => uiStore.simulatePushMode,
+  (mode: SimulatePushMode) => {
+    if (replicationService.value) {
+      replicationService.value.setSimulationMode(mode)
+    }
+  },
+  { immediate: true }
+)
+
+// When the replication service emits a conflict, surface it in the alert panel
+watch(
+  () => replicationService.value?.conflictEvent.value,
+  (conflict) => {
+    if (conflict) {
+      conflictStore.setConflict(conflict)
+    }
+  }
+)
+
+// Resolve a conflict by accepting the server version or keeping the local version
+async function handleResolveConflict(
+  chosen: DefectAnnotation,
+  source: 'server' | 'local'
+) {
+  if (!db || !replicationService.value) return
+
+  console.log(`[Conflict] Resolving with ${source} version:`, chosen.id)
+  conflictStore.dismissConflict()
+
+  // In a full implementation this would call the RxDB conflict handler.
+  // For the simulation, dismissing the alert is the immediate action.
+  notify(
+    source === 'server'
+      ? `Accepted server version of "${chosen.title}" (defect ${chosen.id})`
+      : `Kept local version of "${chosen.title}" (defect ${chosen.id})`,
+    { color: 'info', icon: source === 'server' ? 'mdi-cloud-check' : 'mdi-content-save' }
+  )
+}
 
 // Selected annotation for Right Panel
 const selectedAnnotation = computed(() => {
@@ -204,16 +287,27 @@ const templateSelectOptions = computed(() => {
   }))
 })
 
-// Snackbar notification state
-const snackbar = ref({
-  show: false,
-  text: '',
-  color: 'success',
-  icon: 'mdi-check-circle-outline'
-})
+// Snackbar notification stack (multiple can show at once, vertically stacked)
+interface SnackbarItem {
+  id: number
+  show: boolean
+  text: string
+  color: string
+  icon: string
+  timeout: number
+  closable: boolean
+  positionStyle: (idx: number) => string
+}
 
-function notify(text: string, color: string = 'success', icon: string = 'mdi-check-circle-outline') {
-  snackbar.value = { show: true, text, color, icon }
+const snackbarStack = ref<SnackbarItem[]>([])
+
+function closeSnackbar(id: number) {
+  snackbarStack.value = snackbarStack.value.filter(i => i.id !== id)
+}
+
+function notify(text: string, options?: Partial<NotifyOptions>) {
+  const id = Date.now() + Math.random()
+  snackbarStack.value.push({ id, show: true, text, color: options?.color ?? 'success', icon: options?.icon ?? 'mdi-check-circle-outline', timeout: options?.timeout ?? 3000, closable: options?.closable ?? false, positionStyle: (idx: number) => `right: 16px; bottom: ${28 + idx * 64}px; z-index: 9999; position: absolute;` })
 }
 
 function handleFlyToAnnotation(coords: [number, number, number]) {
@@ -264,10 +358,10 @@ async function confirmAddDefect() {
 
     // Select new defect, open right template panel
     uiStore.selectAnnotation(newId)
-    notify(`Added "${newDefect.title}" to local IndexedDB`, 'success', 'mdi-map-marker-check')
+    notify(`Added "${newDefect.title}" to local IndexedDB`, { color: 'success', icon: 'mdi-map-marker-check' })
   } catch (err) {
     console.error('Failed to insert defect into RxDB:', err)
-    notify('Failed to save defect', 'error', 'mdi-alert-circle')
+    notify('Failed to save defect', { color: 'error', icon: 'mdi-alert-circle' })
   }
 }
 
@@ -280,7 +374,7 @@ async function handleUpdateAnnotation(updated: DefectAnnotation) {
     }
   } catch (err) {
     console.error('Failed to update defect in RxDB:', err)
-    notify('Failed to save changes', 'error', 'mdi-alert-circle')
+    notify('Failed to save changes', { color: 'error', icon: 'mdi-alert-circle' })
   }
 }
 
@@ -291,18 +385,18 @@ async function handleDeleteAnnotation(id: string) {
     if (doc) {
       await doc.remove()
       uiStore.closeRightPanel()
-      notify('Defect deleted from local database', 'info', 'mdi-trash-can')
+      notify('Defect deleted from local database', { color: 'info', icon: 'mdi-trash-can' })
     }
   } catch (err) {
     console.error('Failed to delete defect from RxDB:', err)
-    notify('Failed to delete defect', 'error', 'mdi-alert-circle')
+    notify('Failed to delete defect', { color: 'error', icon: 'mdi-alert-circle' })
   }
 }
 
 function toggleOnlineOverride() {
-  if (!replicationService) return
-  const isUnsynced = replicationService.status.value === 'unsynced'
-  replicationService.setPaused(!isUnsynced)
+  if (!replicationService.value) return
+  const isUnsynced = replicationService.value.status.value === 'unsynced'
+  replicationService.value.setPaused(!isUnsynced)
 }
 </script>
 

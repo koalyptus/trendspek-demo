@@ -4,7 +4,7 @@ import { wrappedValidateAjvStorage } from 'rxdb/plugins/validate-ajv'
 import { RxDBDevModePlugin } from 'rxdb/plugins/dev-mode'
 import { RxDBUpdatePlugin } from 'rxdb/plugins/update'
 import { RxDBMigrationSchemaPlugin } from 'rxdb/plugins/migration-schema';
-import type { RxCollection, RxDatabase } from 'rxdb'
+import type { RxCollection, RxDatabase, RxConflictHandler } from 'rxdb'
 import { annotationSchemaLiteral } from './schemas/annotation.schema'
 import { templateSchemaLiteral } from './schemas/template.schema'
 import { defaultTemplates } from './defaultData'
@@ -34,6 +34,27 @@ export interface TrendspekDatabaseCollections {
 
 export type TrendspekDatabase = RxDatabase<TrendspekDatabaseCollections>
 
+// Custom conflict handler for annotation replication (RxDB-recommended pattern:
+// set on the collection via addCollections, NOT on replicateRxCollection).
+// On push conflict, keep the local (fork) state so the user's edit survives;
+// the simulation server accepts the re-push of an already-conflicted doc,
+// which breaks the retry loop. conflict$ then surfaces both versions to the UI.
+const annotationConflictHandler: RxConflictHandler<DefectAnnotation> = {
+  isEqual: (a, b) => {
+    if (!a || !b) return false
+    const strip = (d: typeof a) => {
+      const { _rev, _meta, ...rest } = d as any
+      return JSON.stringify(rest)
+    }
+    return strip(a) === strip(b)
+  },
+  resolve: async (input) => {
+    console.log('[ConflictHandler] Resolving push conflict for:', input.newDocumentState.id,
+      '— keeping local version')
+    return input.newDocumentState
+  }
+}
+
 let dbPromise: Promise<TrendspekDatabase> | null = null
 
 export async function getDatabase(): Promise<TrendspekDatabase> {
@@ -59,7 +80,8 @@ async function initDatabase(): Promise<TrendspekDatabase> {
   await db.addCollections({
     annotations: {
       schema: annotationSchemaLiteral,
-      migrationStrategies: annotationMigrations
+      migrationStrategies: annotationMigrations,
+      conflictHandler: annotationConflictHandler
     },
     templates: {
       schema: templateSchemaLiteral,

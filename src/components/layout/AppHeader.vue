@@ -87,7 +87,7 @@
           Navigate
         </v-btn>
         <v-btn value="add_annotation" size="small" prepend-icon="mdi-map-marker-plus" color="warning">
-          Drop Defect Pin
+          Drop Pin
         </v-btn>
       </v-btn-toggle>
 
@@ -108,6 +108,47 @@
           {{ props.replicationStatus === 'synced' ? 'Online' : 'Offline' }}
         </span>
       </v-btn>
+
+      <!-- Simulate push conflict dropdown -->
+      <v-menu location="bottom start" transition="slide-y-transition">
+        <template #activator="{ props: menuProps }">
+          <v-btn
+            v-bind="menuProps"
+            size="small"
+            variant="text"
+            color="secondary"
+            class="ml-1"
+            append-icon="mdi-chevron-down"
+            title="Simulate push conflict scenarios"
+          >
+            <v-icon icon="mdi-shield-alert-outline" size="16" class="mr-1" />
+            <span class="text-caption font-weight-medium" style="font-size: 0.72rem !important;">
+              Simulate
+            </span>
+          </v-btn>
+        </template>
+        <v-list density="compact" class="border elevation-8">
+          <v-list-subheader class="font-weight-bold text-uppercase text-caption text-primary px-4 py-1">
+            Simulate push conflict
+          </v-list-subheader>
+          <v-list-item
+            v-for="option in simulationOptions"
+            :key="option.value"
+            :active="uiStore.simulatePushMode === option.value"
+            color="primary"
+            @click="uiStore.setSimulatePushMode(option.value)"
+          >
+            <template #prepend>
+              <v-icon
+                :icon="option.icon"
+                size="16"
+                :color="uiStore.simulatePushMode === option.value ? 'primary' : 'secondary'"
+              />
+            </template>
+            <v-list-item-title class="text-body-2">{{ option.label }}</v-list-item-title>
+          </v-list-item>
+        </v-list>
+      </v-menu>
     </div>
 
     <v-spacer></v-spacer>
@@ -224,6 +265,24 @@ const emit = defineEmits<{
   (e: 'change-asset', assetId: string): void
   (e: 'toggle-online-override'): void
 }>()
+
+const simulationOptions = [
+  {
+    value: 'none' as const,
+    label: 'None (default)',
+    icon: 'mdi-check-circle-outline'
+  },
+  {
+    value: 'successful-merge' as const,
+    label: 'Successful property level merge',
+    icon: 'mdi-cloud-check-outline'
+  },
+  {
+    value: 'conflict' as const,
+    label: 'Unsuccessful merge, manual conflict resolution',
+    icon: 'mdi-alert-circle-outline'
+  }
+]
 
 function handleAssetSelect(assetId: string) {
   uiStore.setAsset(assetId)

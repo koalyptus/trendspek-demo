@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
-import type { ActiveTool, Severity } from '@/types'
+import type { ActiveTool, Severity, SimulatePushMode } from '@/types'
 import { availableAssets } from '@/database/defaultData'
 
 /**
@@ -33,6 +33,9 @@ export const useUiStore = defineStore('ui', () => {
 
   // Trigger for Cesium camera fly-to animation
   const flyToTarget = ref<[number, number, number] | null>(null)
+
+  // Push conflict simulation mode (session-only, resets on reload)
+  const simulatePushMode = ref<SimulatePushMode>('none')
 
   // Actions
   function setAsset(assetId: string) {
@@ -87,6 +90,10 @@ export const useUiStore = defineStore('ui', () => {
     flyToTarget.value = null
   }
 
+  function setSimulatePushMode(mode: SimulatePushMode) {
+    simulatePushMode.value = mode
+  }
+
   return {
     isLeftPanelOpen,
     isRightPanelOpen,
@@ -99,6 +106,7 @@ export const useUiStore = defineStore('ui', () => {
     filterSeverity,
     searchQuery,
     flyToTarget,
+    simulatePushMode,
     setAsset,
     selectAnnotation,
     setHoveredAnnotation,
@@ -107,6 +115,7 @@ export const useUiStore = defineStore('ui', () => {
     openRightPanel,
     closeRightPanel,
     setActiveTool,
+    setSimulatePushMode,
     requestFlyTo,
     clearFlyToTarget
   }

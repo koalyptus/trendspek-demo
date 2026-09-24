@@ -1,9 +1,9 @@
 import { replicateRxCollection } from 'rxdb/plugins/replication'
 import type { RxReplicationState } from 'rxdb/plugins/replication'
 import type { TrendspekDatabase } from '@/database'
-import type { DefectAnnotation, ReplicationStatus } from '@/types'
+import type { DefectAnnotation, ReplicationStatus, SimulatePushMode } from '@/types'
 import type { WithDeleted, RxReplicationWriteToMasterRow } from 'rxdb'
-import { ref } from 'vue'
+import { ref, shallowRef } from 'vue'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
 
@@ -20,7 +20,9 @@ interface StatusChangeCallback {
 type PullServerResponse = { documents: WithDeleted<DefectAnnotation>[]; checkpoint: string }
 type PushServerResponse = WithDeleted<DefectAnnotation>[]
 
-export type ReplicationService = ReturnType<typeof createReplicationService>
+export type ReplicationService = ReturnType<typeof createReplicationService> & {
+  onMergeResult?: () => void
+}
 
 export function createReplicationService(db: TrendspekDatabase) {
   let replicationState: RxReplicationState<DefectAnnotation, CheckpointType> | null = null
@@ -28,12 +30,24 @@ export function createReplicationService(db: TrendspekDatabase) {
   const status = ref<ReplicationStatus>('unsynced')
   let onStatusChange: StatusChangeCallback | null = null
   let onPushSuccess: PushSuccessCallback | null = null
+  let onMergeResult: (() => void) | null = null
   let lastErrorTime: number = -1
   let errorSub: { unsubscribe: () => void } | null = null
   let sentSub: { unsubscribe: () => void } | null = null
+  let conflictSub: { unsubscribe: () => void } | null = null
   let onlineHandler: (() => void) | null = null
   let offlineHandler: (() => void) | null = null
   let pendingPush: { docs: WithDeleted<DefectAnnotation>[]; expected: number } = { docs: [], expected: 0 }
+
+  // Exposed reactive stream for conflict-resolution UI
+  const conflictEvent = shallowRef<{
+    serverState: DefectAnnotation
+    localState: DefectAnnotation
+    resolvedState: DefectAnnotation | null
+  } | null>(null)
+
+  // Session-only simulation mode, settable from outside (e.g. UI store changes)
+  let simulationMode: SimulatePushMode = 'none'
 
   async function start() {
     if (replicationState && !replicationState.isStoppedOrPaused()) {
@@ -66,6 +80,8 @@ export function createReplicationService(db: TrendspekDatabase) {
 
     subscribeToErrors(replicationState)
     subscribeToSent(replicationState)
+    // NOTE: subscribeToConflicts is called AFTER start() — internalReplicationState
+    // is only assigned inside _start(), so subscribing earlier is a silent no-op.
 
     if (typeof window !== 'undefined' && window.addEventListener) {
       const getNavOnline = () => ((typeof window !== 'undefined' && window.navigator?.onLine) ?? true)
@@ -89,6 +105,9 @@ export function createReplicationService(db: TrendspekDatabase) {
 
     await replicationState.start()
     isRunning = true
+    // Subscribe to resolved conflicts only after start(): RxDB assigns
+    // internalReplicationState inside _start(), so this must come after.
+    subscribeToConflicts(replicationState)
     console.log('[Replication] replicationState.start() complete')
   }
 
@@ -121,7 +140,10 @@ export function createReplicationService(db: TrendspekDatabase) {
     } catch (err) {
       console.log('[Pull] handler error:', err)
       lastErrorTime = Date.now()
-      if (status.value !== 'unsynced') {
+      // Network-level failure (fetch rejected) means the backend is unreachable.
+      // HTTP errors are still "reachable" — keep the online status.
+      const isNetworkError = err instanceof TypeError
+      if (isNetworkError && status.value !== 'unsynced') {
         status.value = 'unsynced'
         onStatusChange?.('unsynced')
       }
@@ -131,16 +153,26 @@ export function createReplicationService(db: TrendspekDatabase) {
 
   async function handlePush(docs: RxReplicationWriteToMasterRow<DefectAnnotation>[]): Promise<PushServerResponse> {
     try {
-      console.log('[Push] handler called — docs:', docs.length)
+      console.log('[Push] handler called — docs:', docs.length, 'mode:', simulationMode)
       const res = await fetch(`${API_BASE}/sync/push`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Simulation-Mode': simulationMode
+        },
         body: JSON.stringify({ documents: docs })
       })
       console.log('[Push] response status:', res.status)
 
       if (!res.ok) {
         throw new Error(`Push failed: ${res.status} ${res.statusText}`)
+      }
+
+      // Check for server-side merge result signal (successful-merge simulation)
+      const mergeResult = res.headers.get('X-Merge-Result')
+      if (mergeResult === 'success') {
+        console.log('[Push] Server reported successful property level merge')
+        onMergeResult?.()
       }
 
       pendingPush = { docs: [], expected: docs.length }
@@ -155,11 +187,55 @@ export function createReplicationService(db: TrendspekDatabase) {
     } catch (err) {
       console.log('[Push] handler error:', err)
       lastErrorTime = Date.now()
-      if (status.value !== 'unsynced') {
+      // Network-level failure (fetch rejected) means the backend is unreachable.
+      // HTTP errors are still "reachable" — keep the online status.
+      const isNetworkError = err instanceof TypeError
+      if (isNetworkError && status.value !== 'unsynced') {
         status.value = 'unsynced'
         onStatusChange?.('unsynced')
       }
       throw err
+    }
+  }
+
+  function subscribeToConflicts(replicationState: RxReplicationState<DefectAnnotation, string>) {
+    if (!replicationState) {
+      return
+    }
+
+    // RxDB 16 has no public conflict$ on RxReplicationState. Resolved conflicts
+    // are emitted on the internal replication state's events.resolvedConflicts
+    // as { input: { realMasterState, newDocumentState, assumedMasterState },
+    //       output: resolvedDocumentState }.
+    const internal = replicationState as unknown as {
+      internalReplicationState?: {
+        events: {
+          resolvedConflicts: {
+            subscribe: (fn: (v: unknown) => void) => { unsubscribe: () => void }
+          }
+        }
+      }
+    }
+    const resolvedConflicts = internal.internalReplicationState?.events?.resolvedConflicts
+    if (resolvedConflicts && typeof resolvedConflicts.subscribe === 'function') {
+      conflictSub = resolvedConflicts.subscribe((conflict: unknown) => {
+        console.log('[Replication] resolvedConflicts emitted:', JSON.stringify(conflict, null, 2))
+        const c = conflict as {
+          input?: {
+            realMasterState?: DefectAnnotation
+            newDocumentState?: DefectAnnotation
+            assumedMasterState?: DefectAnnotation
+          }
+          output?: DefectAnnotation
+        } | null
+        if (c?.input?.realMasterState && c?.input?.newDocumentState) {
+          conflictEvent.value = {
+            serverState: c.input.realMasterState,
+            localState: c.input.newDocumentState,
+            resolvedState: c.output ?? null
+          }
+        }
+      })
     }
   }
 
@@ -171,10 +247,9 @@ export function createReplicationService(db: TrendspekDatabase) {
     const { error$ } = replicationState
     if (error$ && typeof error$.subscribe === 'function') {
       errorSub = error$.subscribe((err: unknown) => {
+        // A replication error (HTTP error, conflict handling failure, …) is NOT
+        // a connectivity loss. Log it; do not flip the online/offline status.
         console.log('[Replication] error$ emitted:', err)
-        lastErrorTime = Date.now()
-        status.value = 'unsynced'
-        onStatusChange?.('unsynced')
       })
     }
   }
@@ -212,6 +287,10 @@ export function createReplicationService(db: TrendspekDatabase) {
   }
 
   function destroy() {
+    if (conflictSub) {
+      conflictSub.unsubscribe()
+      conflictSub = null
+    }
     if (errorSub) {
       errorSub.unsubscribe()
       errorSub = null
@@ -233,15 +312,30 @@ export function createReplicationService(db: TrendspekDatabase) {
     get status() {
       return status
     },
+    get conflictEvent() {
+      return conflictEvent
+    },
+    get simulationMode() {
+      return simulationMode
+    },
     start,
     destroy,
     setPaused,
+    setSimulationMode(mode: SimulatePushMode) {
+      simulationMode = mode
+      console.log('[Replication] simulationMode set to:', mode)
+    },
     set onStatusChange(cb: StatusChangeCallback) {
       console.log('[Replication] onStatusChange setter called')
       onStatusChange = cb
     },
     set onPushSuccess(cb: PushSuccessCallback) {
+      console.log('[Replication] onPushSuccess setter called')
       onPushSuccess = cb
+    },
+    set onMergeResult(cb: () => void) {
+      console.log('[Replication] onMergeResult setter called')
+      onMergeResult = cb
     }
   }
 }

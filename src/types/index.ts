@@ -51,3 +51,14 @@ export interface InspectionAsset {
 }
 
 export type ActiveTool = 'select' | 'add_annotation' | 'measure'
+
+export type SimulatePushMode = 'none' | 'successful-merge' | 'conflict'
+
+export interface NotifyOptions {
+  color?: 'success' | 'warning' | 'error' | 'info' | 'default'
+  icon?: string
+  timeout?: number
+  closable?: boolean
+}
+
+export type NotifyFn = (text: string, options?: NotifyOptions) => void
