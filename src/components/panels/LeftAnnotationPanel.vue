@@ -83,56 +83,44 @@
           class="annotation-virtual-scroll"
         >
           <template #default="{ item }">
-            <v-list-item
+            <div
               :key="item.id"
               :ref="measureItemHeight"
-              :class="[
-                'annotation-row mb-1 cursor-pointer rounded-lg',
-                { 'active-row': uiStore.selectedAnnotationId === item.id }
-              ]"
-              :active="uiStore.selectedAnnotationId === item.id"
-              color="primary"
+              class="annotation-row d-flex align-center px-2 py-1 mb-1 cursor-pointer rounded-lg"
+              :class="{ 'active-row': uiStore.selectedAnnotationId === item.id }"
               @click="handleSelect(item)"
             >
-              <template #prepend>
-                <v-icon
-                  :icon="getSeverityIcon(item.severity)"
-                  :color="getSeverityColor(item.severity)"
-                  size="18"
-                  class="mr-2"
-                ></v-icon>
-              </template>
-
-              <v-list-item-title class="text-body-2 font-weight-medium text-white text-truncate">
+              <v-icon
+                :icon="getSeverityIcon(item.severity)"
+                :color="getSeverityColor(item.severity)"
+                size="18"
+                class="icon-severity"
+              ></v-icon>
+              <span class="annotation-title text-body-2 font-weight-medium text-white text-truncate flex-grow-1">
                 {{ item.title }}
-              </v-list-item-title>
-
-              <template #append>
-                <div class="d-flex align-center gap-1">
-                  <v-chip
+              </span>
+              <v-chip
+                size="x-small"
+                variant="tonal"
+                :color="getStatusColor(item.status)"
+                class="text-capitalize font-weight-medium ml-2"
+              >
+                {{ item.status.replace('_', ' ') }}
+              </v-chip>
+              <v-tooltip text="Focus 3D Viewport on Marker" location="top">
+                <template #activator="{ props }">
+                  <v-btn
+                    v-bind="props"
+                    icon="mdi-crosshairs-gps"
                     size="x-small"
-                    variant="tonal"
-                    :color="getStatusColor(item.status)"
-                    class="text-capitalize font-weight-medium"
-                  >
-                    {{ item.status.replace('_', ' ') }}
-                  </v-chip>
-
-                  <v-tooltip text="Focus 3D Viewport on Marker" location="top">
-                    <template #activator="{ props }">
-                      <v-btn
-                        v-bind="props"
-                        icon="mdi-crosshairs-gps"
-                        size="x-small"
-                        variant="text"
-                        color="secondary"
-                        @click.stop="flyToAnnotation(item)"
-                      ></v-btn>
-                    </template>
-                  </v-tooltip>
-                </div>
-              </template>
-            </v-list-item>
+                    variant="text"
+                    color="secondary"
+                    class="ml-1"
+                    @click.stop="flyToAnnotation(item)"
+                  ></v-btn>
+                </template>
+              </v-tooltip>
+            </div>
           </template>
         </v-virtual-scroll>
       </div>
@@ -260,6 +248,7 @@ watch(() => uiStore.searchQuery, () => {
 .annotation-row {
   border: 1px solid rgba(255, 255, 255, 0.06) !important;
   transition: all 0.2s ease-in-out;
+  gap: 6px;
 }
 
 .annotation-row:hover {
@@ -272,7 +261,13 @@ watch(() => uiStore.searchQuery, () => {
   box-shadow: 0 0 8px rgba(0, 210, 181, 0.2);
 }
 
-.filter-chips {
-  gap: 4px;
+.icon-severity {
+  flex-shrink: 0;
+}
+
+.annotation-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 </style>
