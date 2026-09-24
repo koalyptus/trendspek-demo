@@ -134,7 +134,7 @@ import { ref, computed, watch, onBeforeUnmount, reactive, shallowRef, type Ref }
 import { type TrendspekDatabase } from '@/database'
 import { type ReplicationService } from '@/services/replication.service'
 import { useUiStore } from '@/stores/ui.store'
-import type { ReplicationStatus, DefectAnnotation, Severity, SimulatePushMode, NotifyFn, NotifyOptions } from '@/types'
+import type { ReplicationStatus, DefectAnnotation, Severity, SimulatePushMode, NotifyOptions } from '@/types'
 import { useDb } from '@/composables/database'
 import { useReplicationService } from '@/composables/replication'
 
@@ -227,14 +227,41 @@ async function handleResolveConflict(
   console.log(`[Conflict] Resolving with ${source} version:`, chosen.id)
   conflictStore.dismissConflict()
 
-  // In a full implementation this would call the RxDB conflict handler.
-  // For the simulation, dismissing the alert is the immediate action.
-  notify(
-    source === 'server'
-      ? `Accepted server version of "${chosen.title}" (defect ${chosen.id})`
-      : `Kept local version of "${chosen.title}" (defect ${chosen.id})`,
-    { color: 'info', icon: source === 'server' ? 'mdi-cloud-check' : 'mdi-content-save' }
-  )
+  if (source === 'server') {
+    // Persist the server version: patch the local doc so the UI and
+    // subsequent push reflect the accepted server state.
+    try {
+      const doc = await db.annotations.findOne(chosen.id).exec()
+      if (doc) {
+        // Strip RxDB-internal fields — they belong to the server's storage,
+        // not ours — and keep the server's own updatedAt so the pushed
+        // content matches the master state exactly (the server accepts it).
+        const { _rev, _meta, _deleted, _attachments, ...serverFields } = chosen as DefectAnnotation & Record<string, unknown>
+        await doc.patch(serverFields as Partial<DefectAnnotation>)
+      }
+      notify(`Accepted server version of "${chosen.title}" (defect ${chosen.id})`, {
+        color: 'info',
+        icon: 'mdi-cloud-check',
+        timeout: 0,
+        closable: true
+      })
+    } catch (err) {
+      console.error('[Conflict] Failed to persist server version:', err)
+      notify(`Failed to apply server version of "${chosen.title}"`, {
+        color: 'error',
+        icon: 'mdi-alert-circle'
+      })
+    }
+  } else {
+    // Keep local: the conflict handler already resolved to the local state,
+    // so nothing to write — the re-push was already accepted by the server.
+    notify(`Kept local version of "${chosen.title}" (defect ${chosen.id})`, {
+      color: 'info',
+      icon: 'mdi-content-save',
+      timeout: 0,
+      closable: true
+    })
+  }
 }
 
 // Selected annotation for Right Panel

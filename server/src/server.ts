@@ -65,6 +65,10 @@ const CONFLICT_ANNOTATION = {
   _meta: { lwt: 1789955001948.01 }
 };
 
+// Serialized master state we hand out as the conflict. Pushing this exact
+// state back (i.e. the user chose "Use server version") must never conflict.
+const MASTER_STATE_KEY = serializeDocState(CONFLICT_ANNOTATION);
+
 // RxDB replication: push local changes to server
 app.post('/sync/push', (req, res) => {
   const { documents } = req.body as { documents?: unknown[] };
@@ -86,10 +90,12 @@ app.post('/sync/push', (req, res) => {
     const rows = (documents ?? []) as Array<{ newDocumentState?: unknown }>;
     const newRows = rows.filter(r => {
       const state = serializeDocState(r.newDocumentState);
+      // Pushing the master state back ("Use server version") is never a conflict.
+      if (state === MASTER_STATE_KEY) return false;
       return state !== '' && !conflictedDocStates.has(state);
     });
     if (rows.length > 0 && newRows.length === 0) {
-      console.log('[Push] Same doc states already conflicted — accepting re-push after resolution');
+      console.log('[Push] Already-conflicted or master states — accepting push');
       res.json([]);
       return;
     }
