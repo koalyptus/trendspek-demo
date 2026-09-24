@@ -120,9 +120,9 @@
 
     <!-- Push conflict resolution alert -->
     <AlertPanel
-      v-if="conflictStore.activeConflict"
-      :active-conflict="conflictStore.activeConflict"
-      @dismiss="conflictStore.dismissConflict"
+      v-if="activeConflict"
+      :active-conflict="activeConflict"
+      @dismiss="dismissConflict"
       @use-server="(s) => handleResolveConflict(s, 'server')"
       @keep-local="(l) => handleResolveConflict(l, 'local')"
     />
@@ -130,7 +130,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount, reactive, shallowRef, type Ref } from 'vue'
+import { ref, computed, watch, onBeforeUnmount, shallowRef, type Ref } from 'vue'
 import { type TrendspekDatabase } from '@/database'
 import { type ReplicationService } from '@/services/replication.service'
 import { useUiStore } from '@/stores/ui.store'
@@ -143,6 +143,29 @@ import LeftAnnotationPanel from '@/components/panels/LeftAnnotationPanel.vue'
 import RightTemplatePanel from '@/components/panels/RightTemplatePanel.vue'
 import CesiumViewer from '@/components/cesium/CesiumViewer.vue'
 import AlertPanel from '@/components/panels/AlertPanel.vue'
+
+// Conflict resolution state (session-only, transient UI).
+// Deliberately a shallowRef, NOT reactive(): the conflict payload must stay
+// plain data — reactive() would deep-proxy nested objects (serverState,
+// templateValues, …), and RxDB rejects Proxy data on write (DOC24).
+// shallowRef re-renders the panel on .value swap while leaving the payload plain.
+interface ConflictData {
+  serverState: DefectAnnotation
+  localState: DefectAnnotation
+  resolvedState: DefectAnnotation | null
+}
+
+// Snackbar notification stack (multiple can show at once, vertically stacked)
+interface SnackbarItem {
+  id: number
+  show: boolean
+  text: string
+  color: string
+  icon: string
+  timeout: number
+  closable: boolean
+  positionStyle: (idx: number) => string
+}
 
 const uiStore = useUiStore()
 const cesiumViewerRef = ref<InstanceType<typeof CesiumViewer> | null>(null)
@@ -166,34 +189,15 @@ watch(ready, (dbReady: boolean) => {
   }
 }, { immediate: true })
 
-onBeforeUnmount(() => {
-  if (replicationService.value) {
-    replicationService.value.destroy()
-  }
-})
+const activeConflict = shallowRef<ConflictData | null>(null)
 
-// Conflict resolution state (session-only, transient UI)
-interface ConflictData {
-  serverState: DefectAnnotation
-  localState: DefectAnnotation
-  resolvedState: DefectAnnotation | null
+function setConflict(c: ConflictData | null) {
+  activeConflict.value = c
 }
 
-interface ConflictStore {
-  activeConflict: ConflictData | null
-  dismissConflict(): void
-  setConflict(c: ConflictData | null): void
+function dismissConflict() {
+  activeConflict.value = null
 }
-
-const conflictStore: ConflictStore = reactive<ConflictStore>({
-  activeConflict: null,
-  dismissConflict() {
-    this.activeConflict = null
-  },
-  setConflict(c: ConflictData | null) {
-    this.activeConflict = c
-  }
-})
 
 // Reactive sync: when the UI store's simulation mode changes,
 // propagate it to the replication service's push handler
@@ -212,7 +216,7 @@ watch(
   () => replicationService.value?.conflictEvent.value,
   (conflict) => {
     if (conflict) {
-      conflictStore.setConflict(conflict)
+      setConflict(conflict)
     }
   }
 )
@@ -225,7 +229,7 @@ async function handleResolveConflict(
   if (!db || !replicationService.value) return
 
   console.log(`[Conflict] Resolving with ${source} version:`, chosen.id)
-  conflictStore.dismissConflict()
+  dismissConflict()
 
   if (source === 'server') {
     // Persist the server version: patch the local doc so the UI and
@@ -233,10 +237,13 @@ async function handleResolveConflict(
     try {
       const doc = await db.annotations.findOne(chosen.id).exec()
       if (doc) {
-        // Strip RxDB-internal fields — they belong to the server's storage,
-        // not ours — and keep the server's own updatedAt so the pushed
-        // content matches the master state exactly (the server accepts it).
-        const { _rev, _meta, _deleted, _attachments, ...serverFields } = chosen as DefectAnnotation & Record<string, unknown>
+        // chosen lives inside a reactive() store — its nested objects are Vue
+        // Proxies, which RxDB rejects (DOC24: data must be structured-cloneable).
+        // JSON round-trip yields plain, non-reactive data. It also strips
+        // RxDB-internal fields of the server's storage — keep the server's own
+        // updatedAt so the re-pushed content matches the master state exactly.
+        const plain = JSON.parse(JSON.stringify(chosen)) as DefectAnnotation & Record<string, unknown>
+        const { _rev, _meta, _deleted, _attachments, ...serverFields } = plain
         await doc.patch(serverFields as Partial<DefectAnnotation>)
       }
       notify(`Accepted server version of "${chosen.title}" (defect ${chosen.id})`, {
@@ -313,18 +320,6 @@ const templateSelectOptions = computed(() => {
     value: t.id
   }))
 })
-
-// Snackbar notification stack (multiple can show at once, vertically stacked)
-interface SnackbarItem {
-  id: number
-  show: boolean
-  text: string
-  color: string
-  icon: string
-  timeout: number
-  closable: boolean
-  positionStyle: (idx: number) => string
-}
 
 const snackbarStack = ref<SnackbarItem[]>([])
 
@@ -425,6 +420,12 @@ function toggleOnlineOverride() {
   const isUnsynced = replicationService.value.status.value === 'unsynced'
   replicationService.value.setPaused(!isUnsynced)
 }
+
+onBeforeUnmount(() => {
+  if (replicationService.value) {
+    replicationService.value.destroy()
+  }
+})
 </script>
 
 <style>

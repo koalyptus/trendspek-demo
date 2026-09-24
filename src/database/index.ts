@@ -49,8 +49,7 @@ const annotationConflictHandler: RxConflictHandler<DefectAnnotation> = {
     return strip(a) === strip(b)
   },
   resolve: async (input) => {
-    console.log('[ConflictHandler] Resolving push conflict for:', input.newDocumentState.id,
-      '— keeping local version')
+    console.log('[ConflictHandler] Resolving push conflict for:', input.newDocumentState.id, '— keeping local version')
     return input.newDocumentState
   }
 }
