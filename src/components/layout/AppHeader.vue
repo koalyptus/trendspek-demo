@@ -87,7 +87,7 @@
           Navigate
         </v-btn>
         <v-btn value="add_annotation" size="small" prepend-icon="mdi-map-marker-plus" color="warning">
-          Drop Defect Pin
+          Drop Pin
         </v-btn>
       </v-btn-toggle>
 
@@ -97,26 +97,78 @@
         color="secondary"
         class="ml-1"
         @click="$emit('toggle-online-override')"
-        title="Toggle online/offline replication"
+        :title="props.online ? 'Working online — click to pause replication (offline mode)' : 'Working offline — click to resume replication'"
       >
         <v-icon
-          :icon="props.replicationStatus === 'synced' ? 'mdi-cloud-check' : 'mdi-cloud-off-outline'"
+          :icon="props.online ? 'mdi-lan-connect' : 'mdi-lan-disconnect'"
           size="16"
           class="mr-1"
         ></v-icon>
         <span class="text-caption font-weight-medium" style="font-size: 0.72rem !important;">
-          {{ props.replicationStatus === 'synced' ? 'Online' : 'Offline' }}
+          {{ props.online ? 'Online' : 'Offline' }}
         </span>
       </v-btn>
+
+      <!-- Simulate push conflict dropdown -->
+      <v-menu location="bottom start" transition="slide-y-transition">
+        <template #activator="{ props: menuProps }">
+          <v-btn
+            v-bind="menuProps"
+            size="small"
+            variant="text"
+            color="secondary"
+            class="ml-1"
+            append-icon="mdi-chevron-down"
+            title="Simulate push conflict scenarios"
+          >
+            <v-icon icon="mdi-shield-alert-outline" size="16" class="mr-1" />
+            <span class="text-caption font-weight-medium" style="font-size: 0.72rem !important;">
+              Simulate
+            </span>
+          </v-btn>
+        </template>
+        <v-list density="compact" class="border elevation-8">
+          <v-list-subheader class="font-weight-bold text-uppercase text-caption text-primary px-4 py-1">
+            Simulate push conflict
+          </v-list-subheader>
+          <v-list-item
+            v-for="option in simulationOptions"
+            :key="option.value"
+            :active="uiStore.simulatePushMode === option.value"
+            color="primary"
+            @click="uiStore.setSimulatePushMode(option.value)"
+          >
+            <template #prepend>
+              <v-icon
+                :icon="option.icon"
+                size="16"
+                :color="uiStore.simulatePushMode === option.value ? 'primary' : 'secondary'"
+              />
+            </template>
+            <v-list-item-title class="text-body-2">{{ option.label }}</v-list-item-title>
+          </v-list-item>
+        </v-list>
+      </v-menu>
     </div>
 
     <v-spacer></v-spacer>
-    <v-tooltip :text="props.replicationStatus === 'synced' ? 'Replication active — changes synced with server' : 'Replication unsynced — running locally only'" location="bottom">
+    <v-tooltip :text="props.replicationStatus === 'synced' ? 'Backend reachable — changes synced with server' : 'Backend unreachable — changes stay local until it is back'" location="bottom">
       <template #activator="{ props: tooltipProps }">
-        <div v-bind="tooltipProps" class="d-flex align-center px-2 py-1 rounded-pill cursor-pointer" :style="props.replicationStatus === 'synced' ? 'background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);' : 'background: rgba(100, 100, 100, 0.12); border: 1px solid rgba(100, 100, 100, 0.3);'">
-          <v-icon :icon="props.replicationStatus === 'synced' ? 'mdi-cloud-check' : 'mdi-cloud-off-outline'" :color="props.replicationStatus === 'synced' ? 'success' : 'disabled'" size="16" class="mr-1"></v-icon>
-          <span class="text-caption font-weight-medium" :style="props.replicationStatus === 'synced' ? 'color: #10B981;' : 'color: #888888;'" style="font-size: 0.72rem !important;">
-            {{ props.replicationStatus === 'synced' ? 'Synced' : 'Unsynced' }}
+        <div v-bind="tooltipProps" class="d-flex align-center px-2 py-1 rounded-pill cursor-pointer" :style="props.replicationStatus === 'synced' ? 'background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);' : 'background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3);'">
+          <v-icon :icon="props.replicationStatus === 'synced' ? 'mdi-server' : 'mdi-server-off'" :color="props.replicationStatus === 'synced' ? 'success' : 'error'" size="16" class="mr-1"></v-icon>
+          <span class="text-caption font-weight-medium" :style="props.replicationStatus === 'synced' ? 'color: #10B981;' : 'color: #EF4444;'" style="font-size: 0.72rem !important;">
+            {{ props.replicationStatus === 'synced' ? 'Backend up' : 'Backend down' }}
+          </span>
+        </div>
+      </template>
+    </v-tooltip>
+
+    <v-tooltip :text="isSynced ? 'Local changes are synchronized with the server' : 'Replication is offline or local changes are waiting to synchronize'" location="bottom">
+      <template #activator="{ props: tooltipProps }">
+        <div v-bind="tooltipProps" class="d-flex align-center px-2 py-1 rounded-pill cursor-pointer" :style="isSynced ? 'background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);' : 'background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3);'">
+          <v-icon :icon="isSynced ? 'mdi-cloud-check' : 'mdi-cloud-clock-outline'" :color="isSynced ? 'success' : 'warning'" size="16" class="mr-1"></v-icon>
+          <span class="text-caption font-weight-medium" :style="isSynced ? 'color: #10B981;' : 'color: #F59E0B;'" style="font-size: 0.72rem !important;">
+            {{ isSynced ? 'Synced' : 'Unsynced' }}
           </span>
         </div>
       </template>
@@ -209,7 +261,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useUiStore } from '@/stores/ui.store'
 
 const uiStore = useUiStore()
@@ -217,13 +269,34 @@ const showInfoDialog = ref(false)
 
 const props = defineProps<{
   replicationStatus?: 'synced' | 'unsynced'
+  online?: boolean
 }>()
+
+const isSynced = computed(() => props.online !== false && props.replicationStatus === 'synced')
 
 const emit = defineEmits<{
   (e: 'reset-demo'): void
   (e: 'change-asset', assetId: string): void
   (e: 'toggle-online-override'): void
 }>()
+
+const simulationOptions = [
+  {
+    value: 'none' as const,
+    label: 'None (default)',
+    icon: 'mdi-check-circle-outline'
+  },
+  {
+    value: 'successful-merge' as const,
+    label: 'Successful property level merge',
+    icon: 'mdi-cloud-check-outline'
+  },
+  {
+    value: 'conflict' as const,
+    label: 'Unsuccessful merge, manual conflict resolution',
+    icon: 'mdi-alert-circle-outline'
+  }
+]
 
 function handleAssetSelect(assetId: string) {
   uiStore.setAsset(assetId)

@@ -3,6 +3,7 @@
     <!-- Top App Bar -->
     <AppHeader
       :replication-status="replicationStatus"
+      :online="replicationOnline"
       @toggle-online-override="toggleOnlineOverride"
     />
 
@@ -96,41 +97,82 @@
       </v-card>
     </v-dialog>
 
-    <!-- Global Notification Snackbar -->
+    <!-- Global Notification Snackbar stack (vertically stacked) -->
     <v-snackbar
-      v-model="snackbar.show"
-      :color="snackbar.color"
-      timeout="3000"
-      location="bottom right"
+      v-for="(item, idx) in snackbarStack"
+      :key="item.id"
+      :model-value="item.show"
+      @update:model-value="closeSnackbar(item.id)"
+      :color="item.color"
+      :timeout="item.timeout === 0 ? PERSISTENT_SNACKBAR_TIMEOUT_MS : item.timeout"
+      :style="item.positionStyle(idx)"
       rounded="lg"
+      closable
+      class="snackbar-stack"
     >
+      <template v-if="item.closable">
+        <v-icon icon="mdi-close" class="mr-2" size="18" @click="closeSnackbar(item.id)"></v-icon>
+      </template>
       <div class="d-flex align-center">
-        <v-icon :icon="snackbar.icon" class="mr-2" size="18"></v-icon>
-        <span class="text-body-2 font-weight-medium">{{ snackbar.text }}</span>
+        <v-icon :icon="item.icon" class="mr-2" size="18"></v-icon>
+        <span class="text-body-2 font-weight-medium">{{ item.text }}</span>
       </div>
     </v-snackbar>
+
+    <!-- Push conflict resolution alert -->
+    <AlertPanel
+      v-if="activeConflict"
+      :active-conflict="activeConflict"
+      @dismiss="dismissConflict"
+      @use-server="(s) => handleResolveConflict(s, 'server')"
+      @keep-local="(l) => handleResolveConflict(l, 'local')"
+    />
   </v-app>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUnmount, type Ref } from 'vue'
+import { ref, computed, watch, onBeforeUnmount, shallowRef, type Ref } from 'vue'
 import { type TrendspekDatabase } from '@/database'
 import { type ReplicationService } from '@/services/replication.service'
 import { useUiStore } from '@/stores/ui.store'
-import type { ReplicationStatus, DefectAnnotation, Severity } from '@/types'
+import type { ReplicationStatus, DefectAnnotation, Severity, SimulatePushMode, NotifyOptions } from '@/types'
 import { useDb } from '@/composables/database'
-import { useReplicationService } from '@/composables/replicationService'
+import { useReplicationService } from '@/composables/replication'
 
 import AppHeader from '@/components/layout/AppHeader.vue'
 import LeftAnnotationPanel from '@/components/panels/LeftAnnotationPanel.vue'
 import RightTemplatePanel from '@/components/panels/RightTemplatePanel.vue'
 import CesiumViewer from '@/components/cesium/CesiumViewer.vue'
+import AlertPanel from '@/components/panels/AlertPanel.vue'
+
+// Conflict resolution state (session-only, transient UI).
+// Deliberately a shallowRef, NOT reactive(): the conflict payload must stay
+// plain data — reactive() would deep-proxy nested objects (serverState,
+// templateValues, …), and RxDB rejects Proxy data on write (DOC24).
+// shallowRef re-renders the panel on .value swap while leaving the payload plain.
+interface ConflictData {
+  serverState: DefectAnnotation
+  localState: DefectAnnotation
+  resolvedState: DefectAnnotation | null
+}
+
+// Snackbar notification stack (multiple can show at once, vertically stacked)
+interface SnackbarItem {
+  id: number
+  show: boolean
+  text: string
+  color: string
+  icon: string
+  timeout: number
+  closable: boolean
+  positionStyle: (idx: number) => string
+}
 
 const uiStore = useUiStore()
 const cesiumViewerRef = ref<InstanceType<typeof CesiumViewer> | null>(null)
 
-// Replication service
-let replicationService: ReplicationService | null = null
+// Replication service (shallowRef so watches below can track it reactively)
+const replicationService = shallowRef<ReplicationService | null>(null)
 let replicationStatus: Ref<ReplicationStatus>
 
 // RxDB Database instance & reactive datasets
@@ -143,16 +185,92 @@ watch(ready, (dbReady: boolean) => {
     db = dbComposition.db()
 
     const replSvc = useReplicationService(db!, notify)
-    replicationService = replSvc.replicationService
+    replicationService.value = replSvc.replicationService
     replicationStatus = replSvc.replicationStatus
   }
 }, { immediate: true })
 
-onBeforeUnmount(() => {
-  if (replicationService) {
-    replicationService.destroy()
+const activeConflict = shallowRef<ConflictData | null>(null)
+
+function setConflict(c: ConflictData | null) {
+  activeConflict.value = c
+}
+
+function dismissConflict() {
+  activeConflict.value = null
+}
+
+// Reactive sync: when the UI store's simulation mode changes,
+// propagate it to the replication service's push handler
+watch(
+  () => uiStore.simulatePushMode,
+  (mode: SimulatePushMode) => {
+    if (replicationService.value) {
+      replicationService.value.setSimulationMode(mode)
+    }
+  },
+  { immediate: true }
+)
+
+// When the replication service emits a conflict, surface it in the alert panel
+watch(
+  () => replicationService.value?.conflictEvent.value,
+  (conflict) => {
+    if (conflict) {
+      setConflict(conflict)
+    }
   }
-})
+)
+
+// Resolve a conflict by accepting the server version or keeping the local version
+async function handleResolveConflict(
+  chosen: DefectAnnotation,
+  source: 'server' | 'local'
+) {
+  if (!db || !replicationService.value) return
+
+  console.log(`[Conflict] Resolving with ${source} version:`, chosen.id)
+  dismissConflict()
+
+  if (source === 'server') {
+    // Persist the server version: patch the local doc so the UI and
+    // subsequent push reflect the accepted server state.
+    try {
+      const doc = await db.annotations.findOne(chosen.id).exec()
+      if (doc) {
+        // chosen lives inside a reactive() store — its nested objects are Vue
+        // Proxies, which RxDB rejects (DOC24: data must be structured-cloneable).
+        // JSON round-trip yields plain, non-reactive data. It also strips
+        // RxDB-internal fields of the server's storage — keep the server's own
+        // updatedAt so the re-pushed content matches the master state exactly.
+        const plain = JSON.parse(JSON.stringify(chosen)) as DefectAnnotation & Record<string, unknown>
+        const { _rev, _meta, _deleted, _attachments, ...serverFields } = plain
+        await doc.patch(serverFields as Partial<DefectAnnotation>)
+      }
+      notify(`Accepted server version of "${chosen.title}" (defect ${chosen.id})`, {
+        color: 'info',
+        icon: 'mdi-cloud-check',
+        timeout: 0,
+        closable: true
+      })
+    } catch (err) {
+      console.error('[Conflict] Failed to persist server version:', err)
+      notify(`Failed to apply server version of "${chosen.title}"`, {
+        color: 'error',
+        icon: 'mdi-alert-circle'
+      })
+    }
+  } else {
+    // Keep local: the conflict handler already resolved to the local state,
+    // so nothing to write — the re-push was already accepted by the server.
+    notify(`Kept local version of "${chosen.title}" (defect ${chosen.id})`, {
+      color: 'info',
+      icon: 'mdi-content-save',
+      timeout: 0,
+      closable: true
+    })
+  }
+}
 
 // Selected annotation for Right Panel
 const selectedAnnotation = computed(() => {
@@ -204,16 +322,20 @@ const templateSelectOptions = computed(() => {
   }))
 })
 
-// Snackbar notification state
-const snackbar = ref({
-  show: false,
-  text: '',
-  color: 'success',
-  icon: 'mdi-check-circle-outline'
-})
+const snackbarStack = ref<SnackbarItem[]>([])
 
-function notify(text: string, color: string = 'success', icon: string = 'mdi-check-circle-outline') {
-  snackbar.value = { show: true, text, color, icon }
+// `timeout: 0` means "stay until dismissed" — Vuetify has no sticky mode, so
+// use a ~24h timeout as the persistent sentinel.
+const PERSISTENT_SNACKBAR_TIMEOUT_MS = 86400000
+let nextSnackbarId = 0
+
+function closeSnackbar(id: number) {
+  snackbarStack.value = snackbarStack.value.filter(i => i.id !== id)
+}
+
+function notify(text: string, options?: Partial<NotifyOptions>) {
+  const id = ++nextSnackbarId
+  snackbarStack.value.push({ id, show: true, text, color: options?.color ?? 'success', icon: options?.icon ?? 'mdi-check-circle-outline', timeout: options?.timeout ?? 3000, closable: options?.closable ?? false, positionStyle: (idx: number) => `right: 16px; bottom: ${28 + idx * 64}px; z-index: 9999; position: absolute;` })
 }
 
 function handleFlyToAnnotation(coords: [number, number, number]) {
@@ -264,10 +386,10 @@ async function confirmAddDefect() {
 
     // Select new defect, open right template panel
     uiStore.selectAnnotation(newId)
-    notify(`Added "${newDefect.title}" to local IndexedDB`, 'success', 'mdi-map-marker-check')
+    notify(`Added "${newDefect.title}" to local IndexedDB`, { color: 'success', icon: 'mdi-map-marker-check' })
   } catch (err) {
     console.error('Failed to insert defect into RxDB:', err)
-    notify('Failed to save defect', 'error', 'mdi-alert-circle')
+    notify('Failed to save defect', { color: 'error', icon: 'mdi-alert-circle' })
   }
 }
 
@@ -280,7 +402,7 @@ async function handleUpdateAnnotation(updated: DefectAnnotation) {
     }
   } catch (err) {
     console.error('Failed to update defect in RxDB:', err)
-    notify('Failed to save changes', 'error', 'mdi-alert-circle')
+    notify('Failed to save changes', { color: 'error', icon: 'mdi-alert-circle' })
   }
 }
 
@@ -291,19 +413,32 @@ async function handleDeleteAnnotation(id: string) {
     if (doc) {
       await doc.remove()
       uiStore.closeRightPanel()
-      notify('Defect deleted from local database', 'info', 'mdi-trash-can')
+      notify('Defect deleted from local database', { color: 'info', icon: 'mdi-trash-can' })
     }
   } catch (err) {
     console.error('Failed to delete defect from RxDB:', err)
-    notify('Failed to delete defect', 'error', 'mdi-alert-circle')
+    notify('Failed to delete defect', { color: 'error', icon: 'mdi-alert-circle' })
   }
 }
 
+// Effective Online/Offline switch state (user override, else navigator.onLine).
+// The service owns all navigator.onLine logic — we only read its computed ref.
+const replicationOnline = computed(() =>
+  replicationService.value ? !replicationService.value.paused.value : true
+)
+
 function toggleOnlineOverride() {
-  if (!replicationService) return
-  const isUnsynced = replicationService.status.value === 'unsynced'
-  replicationService.setPaused(!isUnsynced)
+  if (!replicationService.value) return
+  // Toggle the effective state: if currently online (by override or browser),
+  // switch to offline; and vice versa.
+  replicationService.value.setPaused(!replicationService.value.paused.value)
 }
+
+onBeforeUnmount(() => {
+  if (replicationService.value) {
+    replicationService.value.destroy()
+  }
+})
 </script>
 
 <style>

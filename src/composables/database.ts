@@ -3,7 +3,9 @@ import { getDatabase, type TrendspekDatabase } from '@/database'
 import type { Subscription } from 'rxjs'
 import type { DefectAnnotation, AnnotationTemplate } from '@/types'
 
-export function useDb(notify: (text: string, color?: string, icon?: string) => void) {
+import type { NotifyFn } from '@/types'
+
+export function useDb(notify: NotifyFn) {
   let db: TrendspekDatabase | null = null
   let annotationsSub: Subscription | null = null
   let templatesSub: Subscription | null = null
@@ -15,7 +17,7 @@ export function useDb(notify: (text: string, color?: string, icon?: string) => v
   const templatesReady = ref(false)
 
   // 1. Initialize RxDB Local-First Database
-  const execute = async () => {
+  const init = async () => {
     try {
       db = await getDatabase()
 
@@ -33,14 +35,14 @@ export function useDb(notify: (text: string, color?: string, icon?: string) => v
 
       dbReady.value = true
 
-      notify('RxDB Local-First Database Initialized (IndexedDB)', 'success', 'mdi-database-check')
+      notify('RxDB Local-First Database Initialized (IndexedDB)', { color: 'success', icon: 'mdi-database-check' })
     } catch (err) {
       console.error('[RxDB Init Error]:', err)
-      notify('Database initialization warning. Using fallback.', 'warning', 'mdi-alert')
+      notify('Database initialization warning. Using fallback.', { color: 'warning', icon: 'mdi-alert' })
     }
   }
 
-  execute()
+  init()
 
   onBeforeUnmount(() => {
     if (annotationsSub) {
