@@ -55,7 +55,7 @@ export type ActiveTool = 'select' | 'add_annotation' | 'measure'
 export type SimulatePushMode = 'none' | 'successful-merge' | 'conflict'
 
 export interface NotifyOptions {
-  color?: 'success' | 'warning' | 'error' | 'info' | 'default'
+  color?: 'success' | 'warning' | 'error' | 'info'
   icon?: string
   timeout?: number
   closable?: boolean

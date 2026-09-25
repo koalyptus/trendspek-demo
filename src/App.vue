@@ -104,14 +104,14 @@
       :model-value="item.show"
       @update:model-value="closeSnackbar(item.id)"
       :color="item.color"
-      :timeout="item.timeout === 0 ? 86400000 : item.timeout"
+      :timeout="item.timeout === 0 ? PERSISTENT_SNACKBAR_TIMEOUT_MS : item.timeout"
       :style="item.positionStyle(idx)"
       rounded="lg"
       closable
       class="snackbar-stack"
     >
       <template v-if="item.closable">
-        <v-icon icon="mdi-close" class="mr-2" size="18" @click="item.show = false"></v-icon>
+        <v-icon icon="mdi-close" class="mr-2" size="18" @click="closeSnackbar(item.id)"></v-icon>
       </template>
       <div class="d-flex align-center">
         <v-icon :icon="item.icon" class="mr-2" size="18"></v-icon>
@@ -324,12 +324,17 @@ const templateSelectOptions = computed(() => {
 
 const snackbarStack = ref<SnackbarItem[]>([])
 
+// `timeout: 0` means "stay until dismissed" — Vuetify has no sticky mode, so
+// use a ~24h timeout as the persistent sentinel.
+const PERSISTENT_SNACKBAR_TIMEOUT_MS = 86400000
+let nextSnackbarId = 0
+
 function closeSnackbar(id: number) {
   snackbarStack.value = snackbarStack.value.filter(i => i.id !== id)
 }
 
 function notify(text: string, options?: Partial<NotifyOptions>) {
-  const id = Date.now() + Math.random()
+  const id = ++nextSnackbarId
   snackbarStack.value.push({ id, show: true, text, color: options?.color ?? 'success', icon: options?.icon ?? 'mdi-check-circle-outline', timeout: options?.timeout ?? 3000, closable: options?.closable ?? false, positionStyle: (idx: number) => `right: 16px; bottom: ${28 + idx * 64}px; z-index: 9999; position: absolute;` })
 }
 

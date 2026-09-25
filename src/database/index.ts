@@ -39,12 +39,26 @@ export type TrendspekDatabase = RxDatabase<TrendspekDatabaseCollections>
 // On push conflict, keep the local (fork) state so the user's edit survives;
 // the simulation server accepts the re-push of an already-conflicted doc,
 // which breaks the retry loop. conflict$ then surfaces both versions to the UI.
+// Deterministic serialization with sorted keys (recursive). Must match the
+// server's canonicalization in server/src/server.ts — bare JSON.stringify is
+// key-order sensitive and would make isEqual report "different" for the same
+// logical doc. Keep the two in sync.
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? ''
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  const record = value as Record<string, unknown>
+  const keys = Object.keys(record)
+    .filter(k => record[k] !== undefined && typeof record[k] !== 'function' && typeof record[k] !== 'symbol')
+    .sort()
+  return `{${keys.map(k => `${JSON.stringify(k)}:${stableStringify(record[k])}`).join(',')}}`
+}
+
 const annotationConflictHandler: RxConflictHandler<DefectAnnotation> = {
   isEqual: (a, b) => {
     if (!a || !b) return false
     const strip = (d: typeof a) => {
       const { _rev, _meta, ...rest } = d as any
-      return JSON.stringify(rest)
+      return stableStringify(rest)
     }
     return strip(a) === strip(b)
   },

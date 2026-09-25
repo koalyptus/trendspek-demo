@@ -4,7 +4,8 @@
     persistent
     no-click-animation
     scrollable
-    width="50%"
+    width="92vw"
+    max-width="900"
   >
     <v-card v-if="activeConflict" color="surface" rounded="lg" elevation="12" class="conflict-card border">
       <!-- Header -->
@@ -53,17 +54,18 @@
                   :color="severityColor(activeConflict.serverState.severity)"
                   variant="flat"
                   class="font-weight-bold"
+                  :class="{ 'conflict-diff': valuesDiffer(activeConflict.serverState.severity, activeConflict.localState.severity) }"
                 >
                   {{ activeConflict.serverState.severity }}
                 </v-chip>
               </div>
               <div class="d-flex justify-space-between">
                 <span class="text-medium-emphasis">Status</span>
-                <span class="font-weight-medium text-white">{{ activeConflict.serverState.status }}</span>
+                <span class="font-weight-medium text-white" :class="{ 'conflict-diff': valuesDiffer(activeConflict.serverState.status, activeConflict.localState.status) }">{{ activeConflict.serverState.status }}</span>
               </div>
               <div v-if="activeConflict.serverState.description" class="mt-1">
                 <span class="text-medium-emphasis d-block">Description</span>
-                <span class="text-white">{{ activeConflict.serverState.description }}</span>
+                <span class="text-white" :class="{ 'conflict-diff': valuesDiffer(activeConflict.serverState.description, activeConflict.localState.description) }">{{ activeConflict.serverState.description }}</span>
               </div>
               <div v-if="activeConflict.serverState.templateValues && Object.keys(activeConflict.serverState.templateValues).length" class="mt-1">
                 <span class="text-medium-emphasis d-block">Template values</span>
@@ -77,7 +79,7 @@
                     class="d-flex justify-space-between"
                   >
                     <span class="text-medium-emphasis">{{ key }}</span>
-                    <span class="text-white break-all">{{ val }}</span>
+                    <span class="text-white break-all" :class="{ 'conflict-diff': valuesDiffer(val, activeConflict.localState.templateValues?.[key]) }">{{ val }}</span>
                   </div>
                 </div>
               </div>
@@ -101,17 +103,18 @@
                   :color="severityColor(activeConflict.localState.severity)"
                   variant="flat"
                   class="font-weight-bold"
+                  :class="{ 'conflict-diff': valuesDiffer(activeConflict.localState.severity, activeConflict.serverState.severity) }"
                 >
                   {{ activeConflict.localState.severity }}
                 </v-chip>
               </div>
               <div class="d-flex justify-space-between">
                 <span class="text-medium-emphasis">Status</span>
-                <span class="font-weight-medium text-white">{{ activeConflict.localState.status }}</span>
+                <span class="font-weight-medium text-white" :class="{ 'conflict-diff': valuesDiffer(activeConflict.localState.status, activeConflict.serverState.status) }">{{ activeConflict.localState.status }}</span>
               </div>
               <div v-if="activeConflict.localState.description" class="mt-1">
                 <span class="text-medium-emphasis d-block">Description</span>
-                <span class="text-white">{{ activeConflict.localState.description }}</span>
+                <span class="text-white" :class="{ 'conflict-diff': valuesDiffer(activeConflict.localState.description, activeConflict.serverState.description) }">{{ activeConflict.localState.description }}</span>
               </div>
               <div v-if="activeConflict.localState.templateValues && Object.keys(activeConflict.localState.templateValues).length" class="mt-1">
                 <span class="text-medium-emphasis d-block">Template values</span>
@@ -125,7 +128,7 @@
                     class="d-flex justify-space-between"
                   >
                     <span class="text-medium-emphasis">{{ key }}</span>
-                    <span class="text-white break-all">{{ val }}</span>
+                    <span class="text-white break-all" :class="{ 'conflict-diff': valuesDiffer(val, activeConflict.serverState.templateValues?.[key]) }">{{ val }}</span>
                   </div>
                 </div>
               </div>
@@ -206,20 +209,33 @@ function keepLocalVersion() {
 function severityColor(severity: string): string {
   switch (severity) {
     case 'critical': return 'error'
-    case 'high': return 'error'
+    case 'high': return 'deep-orange'
     case 'medium': return 'warning'
     case 'low': return 'info'
     default: return 'default'
   }
 }
+
+// Display-only: highlight fields that differ between the server and local
+// versions so the conflict is visible at a glance. JSON comparison keeps it
+// working for nested template values too.
+function valuesDiffer(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) !== JSON.stringify(b)
+}
 </script>
 
 <style scoped>
-/* Width is set via the dialog's width prop (50% of viewport) — the card
-   stretches to fill it. Do NOT set width on the card: the dialog's
+/* Width is set via the dialog's width/max-width props (92vw capped at 900px)
+   — the card stretches to fill it. Do NOT set width on the card: the dialog's
    .v-overlay__content wrapper is full-width and a narrower card inside it
    left-aligns instead of centering. */
 .conflict-col {
   flex: 1 1 320px;
+}
+
+/* Marks a field whose server and local values differ. Display-only. */
+.conflict-diff {
+  color: #FBBF24 !important; /* amber-400 */
+  font-weight: 700;
 }
 </style>

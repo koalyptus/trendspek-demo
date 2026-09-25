@@ -29,18 +29,52 @@ type SimulateMode = 'none' | 'successful-merge' | 'conflict';
 // conflict handler resolves and immediately re-pushes the SAME doc state; that
 // re-push must be accepted or replication loops forever. A NEW edit (different
 // content) must conflict again. So we key on the serialized doc state, not the id.
+//
+// Bound the set: a long demo session (or a fuzzer) would otherwise grow it
+// without limit. Eviction is FIFO — worst case an evicted state conflicts one
+// extra time, which is harmless for a simulation.
 const conflictedDocStates = new Set<string>()
+const MAX_TRACKED_CONFLICT_STATES = 200
+
+function trackConflictedState(state: string) {
+  conflictedDocStates.add(state)
+  while (conflictedDocStates.size > MAX_TRACKED_CONFLICT_STATES) {
+    const oldest = conflictedDocStates.values().next().value
+    if (oldest === undefined) break
+    conflictedDocStates.delete(oldest)
+  }
+}
+
+// Deterministic serialization with sorted keys (recursive). Bare
+// JSON.stringify is key-order sensitive: the same logical doc with keys in a
+// different order would produce a different string, the re-push after "Use
+// server version" would miss MASTER_STATE_KEY, and replication would loop.
+// NOTE: the client conflict handler in src/database/index.ts implements the
+// same canonicalization — keep the two in sync.
+function stableStringify(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? ''
+  if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`
+  const record = value as Record<string, unknown>
+  const keys = Object.keys(record)
+    .filter(k => record[k] !== undefined && typeof record[k] !== 'function' && typeof record[k] !== 'symbol')
+    .sort()
+  return `{${keys.map(k => `${JSON.stringify(k)}:${stableStringify(record[k])}`).join(',')}}`
+}
 
 function serializeDocState(doc: unknown): string {
   if (!doc || typeof doc !== 'object') return ''
   // _rev/_meta/_attachments are RxDB-internal and change on every write —
   // exclude them so a re-push of the same logical content matches.
   const { _rev, _meta, _attachments, ...rest } = doc as Record<string, unknown>
-  return JSON.stringify(rest)
+  return stableStringify(rest)
 }
 
-// Real annotation from the client's IndexedDB, used as the server's
-// "real master state" when the conflict simulation is active.
+// Intentionally static demo data: the simulation always returns THIS canned
+// annotation as the server's "real master state", regardless of which doc the
+// client pushed. That means the conflict dialog may show an annotation the
+// user never edited — acceptable for the demo (it guarantees a reproducible
+// conflict), but do not mistake it for a real merge response. A more faithful
+// simulation would echo the pushed doc back with one field mutated.
 const CONFLICT_ANNOTATION = {
   id: 'defect-1789955001947',
   assetId: 'asset-real-building-01',
@@ -100,7 +134,7 @@ app.post('/sync/push', (req, res) => {
       return;
     }
     console.log(`[Push] Simulating unsuccessful merge for ${newRows.length} doc(s) — returning real annotation as conflict`);
-    newRows.forEach(r => conflictedDocStates.add(serializeDocState(r.newDocumentState)));
+    newRows.forEach(r => trackConflictedState(serializeDocState(r.newDocumentState)));
     res.json([CONFLICT_ANNOTATION]);
     return;
   }

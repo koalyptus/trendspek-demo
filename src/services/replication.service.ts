@@ -37,6 +37,9 @@ export function createReplicationService(db: TrendspekDatabase) {
   let onStatusChange: StatusChangeCallback | null = null
   let onPushSuccess: PushSuccessCallback | null = null
   let onMergeResult: (() => void) | null = null
+  // Timestamp of the last pull/push handler failure (any exception, including
+  // HTTP errors). error$ emissions deliberately do NOT update it. Success
+  // paths use it as a 2s debounce so a single failure doesn't flap the status.
   let lastErrorTime: number = -1
   let errorSub: { unsubscribe: () => void } | null = null
   let sentSub: { unsubscribe: () => void } | null = null
@@ -226,10 +229,21 @@ export function createReplicationService(db: TrendspekDatabase) {
       return
     }
 
-    // RxDB 16 has no public conflict$ on RxReplicationState. Resolved conflicts
-    // are emitted on the internal replication state's events.resolvedConflicts
-    // as { input: { realMasterState, newDocumentState, assumedMasterState },
-    //       output: resolvedDocumentState }.
+    // Drop any previous subscription first: start() builds a fresh replication
+    // state on every non-resume start, and overwriting conflictSub without
+    // unsubscribing would leak the old one (duplicate conflict dialogs).
+    if (conflictSub) {
+      conflictSub.unsubscribe()
+      conflictSub = null
+    }
+
+    // NOTE (verified against rxdb@16.4.0): RxDB 16 has no public conflict$ on
+    // RxReplicationState. Resolved conflicts are emitted on the internal
+    // replication state's events.resolvedConflicts as
+    // { input: { realMasterState, newDocumentState, assumedMasterState },
+    //   output: resolvedDocumentState }.
+    // This is private API — if it disappears on upgrade, the failure mode is a
+    // silent no-op (no dialog ever appears), hence the warn below.
     const internal = replicationState as unknown as {
       internalReplicationState?: {
         events: {
@@ -259,6 +273,8 @@ export function createReplicationService(db: TrendspekDatabase) {
           }
         }
       })
+    } else {
+      console.warn('[Replication] resolvedConflicts stream not found — push conflicts will not surface in the UI (rxdb version mismatch?)')
     }
   }
 
@@ -271,7 +287,9 @@ export function createReplicationService(db: TrendspekDatabase) {
     if (error$ && typeof error$.subscribe === 'function') {
       errorSub = error$.subscribe((err: unknown) => {
         // A replication error (HTTP error, conflict handling failure, …) is NOT
-        // a connectivity loss. Log it; do not flip the online/offline status.
+        // a connectivity loss. Log it; do not flip the online/offline status
+        // and do not touch lastErrorTime (that tracks pull/push handler
+        // failures only — see the 2s debounce in handlePull/handlePush).
         console.log('[Replication] error$ emitted:', err)
       })
     }
