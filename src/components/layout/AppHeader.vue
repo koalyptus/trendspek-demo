@@ -97,15 +97,15 @@
         color="secondary"
         class="ml-1"
         @click="$emit('toggle-online-override')"
-        title="Toggle online/offline replication"
+        :title="props.online ? 'Working online — click to pause replication (offline mode)' : 'Working offline — click to resume replication'"
       >
         <v-icon
-          :icon="props.replicationStatus === 'synced' ? 'mdi-cloud-check' : 'mdi-cloud-off-outline'"
+          :icon="props.online ? 'mdi-lan-connect' : 'mdi-lan-disconnect'"
           size="16"
           class="mr-1"
         ></v-icon>
         <span class="text-caption font-weight-medium" style="font-size: 0.72rem !important;">
-          {{ props.replicationStatus === 'synced' ? 'Online' : 'Offline' }}
+          {{ props.online ? 'Online' : 'Offline' }}
         </span>
       </v-btn>
 
@@ -152,12 +152,12 @@
     </div>
 
     <v-spacer></v-spacer>
-    <v-tooltip :text="props.replicationStatus === 'synced' ? 'Replication active — changes synced with server' : 'Replication unsynced — running locally only'" location="bottom">
+    <v-tooltip :text="props.replicationStatus === 'synced' ? 'Backend reachable — changes synced with server' : 'Backend unreachable — changes stay local until it is back'" location="bottom">
       <template #activator="{ props: tooltipProps }">
-        <div v-bind="tooltipProps" class="d-flex align-center px-2 py-1 rounded-pill cursor-pointer" :style="props.replicationStatus === 'synced' ? 'background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);' : 'background: rgba(100, 100, 100, 0.12); border: 1px solid rgba(100, 100, 100, 0.3);'">
-          <v-icon :icon="props.replicationStatus === 'synced' ? 'mdi-cloud-check' : 'mdi-cloud-off-outline'" :color="props.replicationStatus === 'synced' ? 'success' : 'disabled'" size="16" class="mr-1"></v-icon>
-          <span class="text-caption font-weight-medium" :style="props.replicationStatus === 'synced' ? 'color: #10B981;' : 'color: #888888;'" style="font-size: 0.72rem !important;">
-            {{ props.replicationStatus === 'synced' ? 'Synced' : 'Unsynced' }}
+        <div v-bind="tooltipProps" class="d-flex align-center px-2 py-1 rounded-pill cursor-pointer" :style="props.replicationStatus === 'synced' ? 'background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);' : 'background: rgba(239, 68, 68, 0.12); border: 1px solid rgba(239, 68, 68, 0.3);'">
+          <v-icon :icon="props.replicationStatus === 'synced' ? 'mdi-server' : 'mdi-server-off'" :color="props.replicationStatus === 'synced' ? 'success' : 'error'" size="16" class="mr-1"></v-icon>
+          <span class="text-caption font-weight-medium" :style="props.replicationStatus === 'synced' ? 'color: #10B981;' : 'color: #EF4444;'" style="font-size: 0.72rem !important;">
+            {{ props.replicationStatus === 'synced' ? 'Backend up' : 'Backend down' }}
           </span>
         </div>
       </template>
@@ -258,6 +258,7 @@ const showInfoDialog = ref(false)
 
 const props = defineProps<{
   replicationStatus?: 'synced' | 'unsynced'
+  online?: boolean
 }>()
 
 const emit = defineEmits<{

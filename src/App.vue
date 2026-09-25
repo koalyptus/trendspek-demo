@@ -3,6 +3,7 @@
     <!-- Top App Bar -->
     <AppHeader
       :replication-status="replicationStatus"
+      :online="replicationOnline"
       @toggle-online-override="toggleOnlineOverride"
     />
 
@@ -415,10 +416,17 @@ async function handleDeleteAnnotation(id: string) {
   }
 }
 
+// Effective Online/Offline switch state (user override, else navigator.onLine).
+// The service owns all navigator.onLine logic — we only read its computed ref.
+const replicationOnline = computed(() =>
+  replicationService.value ? !replicationService.value.paused.value : true
+)
+
 function toggleOnlineOverride() {
   if (!replicationService.value) return
-  const isUnsynced = replicationService.value.status.value === 'unsynced'
-  replicationService.value.setPaused(!isUnsynced)
+  // Toggle the effective state: if currently online (by override or browser),
+  // switch to offline; and vice versa.
+  replicationService.value.setPaused(!replicationService.value.paused.value)
 }
 
 onBeforeUnmount(() => {

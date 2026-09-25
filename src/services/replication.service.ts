@@ -3,7 +3,7 @@ import type { RxReplicationState } from 'rxdb/plugins/replication'
 import type { TrendspekDatabase } from '@/database'
 import type { DefectAnnotation, ReplicationStatus, SimulatePushMode } from '@/types'
 import type { WithDeleted, RxReplicationWriteToMasterRow } from 'rxdb'
-import { ref, shallowRef } from 'vue'
+import { ref, shallowRef, computed } from 'vue'
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
 
@@ -28,6 +28,12 @@ export function createReplicationService(db: TrendspekDatabase) {
   let replicationState: RxReplicationState<DefectAnnotation, CheckpointType> | null = null
   let isRunning = false
   const status = ref<ReplicationStatus>('unsynced')
+  // Browser network connectivity (navigator.onLine). Drives the header
+  // Online/Offline switch by default; the user can override it to Offline.
+  // Distinct from `status` (backend reachability): an offline browser makes
+  // the backend unreachable, but an online browser does not imply the
+  // backend is up — only fetch outcomes decide that.
+  const browserOnline = ref(typeof navigator !== 'undefined' ? navigator.onLine : true)
   let onStatusChange: StatusChangeCallback | null = null
   let onPushSuccess: PushSuccessCallback | null = null
   let onMergeResult: (() => void) | null = null
@@ -53,21 +59,24 @@ export function createReplicationService(db: TrendspekDatabase) {
     if (replicationState && !replicationState.isStoppedOrPaused()) {
       await replicationState.start()
       isRunning = true
-      status.value = 'synced'
-      onStatusChange?.('synced')
-      console.log('[Replication] setPaused(false) — resuming replication')
+      // Status (backend health) is NOT forced here — the resumed fetches
+      // decide it (network error → 'unsynced', success → 'synced').
+      console.log('[Replication] resuming replication')
       return
     }
 
-    const currentState = replicationState
-    if (currentState) {
-      await currentState.remove()
+    if (replicationState) {
+      await replicationState.remove()
     }
 
     replicationState = await replicateRxCollection<DefectAnnotation, CheckpointType>({
       collection: db.annotations,
       replicationIdentifier: 'trendspek-annotations-replication',
       live: true,
+      // Critical: with the default (true), RxDB auto-calls start() whenever the
+      // tab becomes visible, silently un-pausing a deliberately paused
+      // replication and flushing queued pushes. We own pause/resume.
+      toggleOnDocumentVisible: false,
       pull: {
         handler: handlePull,
         batchSize: 10
@@ -84,16 +93,19 @@ export function createReplicationService(db: TrendspekDatabase) {
     // is only assigned inside _start(), so subscribing earlier is a silent no-op.
 
     if (typeof window !== 'undefined' && window.addEventListener) {
-      const getNavOnline = () => ((typeof window !== 'undefined' && window.navigator?.onLine) ?? true)
       onlineHandler = () => {
-        console.log('[Replication] navigator online event — navOnline:', getNavOnline())
+        console.log('[Replication] navigator online event')
+        browserOnline.value = true
+        // Optimistically mark synced; a failing fetch will flip it back.
         if (status.value === 'unsynced' && Date.now() - lastErrorTime > 2000) {
           status.value = 'synced'
           onStatusChange?.('synced')
         }
       }
       offlineHandler = () => {
-        console.log('[Replication] navigator offline event — navOnline:', getNavOnline())
+        console.log('[Replication] navigator offline event')
+        browserOnline.value = false
+        // Browser offline => backend is unreachable by definition.
         if (status.value !== 'unsynced') {
           status.value = 'unsynced'
           onStatusChange?.('unsynced')
@@ -112,6 +124,10 @@ export function createReplicationService(db: TrendspekDatabase) {
   }
 
   async function handlePull(lastPulledCheckpoint: CheckpointType | undefined): Promise<PullServerResponse> {
+    // Never hit the network while deliberately paused.
+    if (userPaused.value === true) {
+      return { documents: [], checkpoint: lastPulledCheckpoint ?? new Date().toISOString() }
+    }
     try {
       console.log('[Pull] handler called — checkpoint:', lastPulledCheckpoint)
       const res = await fetch(`${API_BASE}/sync/pull`, {
@@ -152,6 +168,13 @@ export function createReplicationService(db: TrendspekDatabase) {
   }
 
   async function handlePush(docs: RxReplicationWriteToMasterRow<DefectAnnotation>[]): Promise<PushServerResponse> {
+    // Never hit the network while deliberately paused. Returning an empty
+    // conflicts array tells RxDB the push "succeeded"; the docs remain in the
+    // local fork and are re-pushed on resume (RxDB re-syncs from checkpoints).
+    if (userPaused.value === true) {
+      console.log('[Push] paused — skipping network, docs stay local:', docs.length)
+      return []
+    }
     try {
       console.log('[Push] handler called — docs:', docs.length, 'mode:', simulationMode)
       const res = await fetch(`${API_BASE}/sync/push`, {
@@ -273,16 +296,29 @@ export function createReplicationService(db: TrendspekDatabase) {
     }
   }
 
+  // User override: when set, it wins over navigator.onLine for the switch.
+  // null = follow the browser (default). true = user forced Offline.
+  // This is the ONLY place navigator.onLine is read (plus the online/offline
+  // event listeners above) — consumers use the computed below, never the
+  // navigator API directly.
+  const userPaused = ref<null | boolean>(null)
+
+  // Effective switch state, single source of truth for the header button.
+  const effectivePaused = computed(() => userPaused.value ?? !browserOnline.value)
+
   function setPaused(paused: boolean) {
     if (!replicationState) return
+    // true = user forces Offline; null = follow the browser (default).
+    // Clearing the override on resume lets navigator.onLine drive the
+    // switch again instead of pinning it to Online.
+    userPaused.value = paused ? true : null
     if (paused) {
       replicationState.pause()
-      status.value = 'unsynced'
-      onStatusChange?.('unsynced')
     } else {
       replicationState.start()
-      status.value = 'synced'
-      onStatusChange?.('synced')
+      // Status is deliberately left as-is: resuming triggers fetches whose
+      // outcome updates `status` naturally (network error → 'unsynced',
+      // success → 'synced'). Pausing is a user mode, not backend health.
     }
   }
 
@@ -314,6 +350,12 @@ export function createReplicationService(db: TrendspekDatabase) {
     },
     get conflictEvent() {
       return conflictEvent
+    },
+    get paused() {
+      // Effective Online/Offline switch state as a computed ref: user
+      // override wins, otherwise follow navigator.onLine. Exposed as a ref
+      // so consumers' computeds can track it reactively.
+      return effectivePaused
     },
     get simulationMode() {
       return simulationMode
