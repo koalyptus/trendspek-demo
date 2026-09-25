@@ -163,6 +163,17 @@
       </template>
     </v-tooltip>
 
+    <v-tooltip :text="isSynced ? 'Local changes are synchronized with the server' : 'Replication is offline or local changes are waiting to synchronize'" location="bottom">
+      <template #activator="{ props: tooltipProps }">
+        <div v-bind="tooltipProps" class="d-flex align-center px-2 py-1 rounded-pill cursor-pointer" :style="isSynced ? 'background: rgba(16, 185, 129, 0.12); border: 1px solid rgba(16, 185, 129, 0.3);' : 'background: rgba(245, 158, 11, 0.12); border: 1px solid rgba(245, 158, 11, 0.3);'">
+          <v-icon :icon="isSynced ? 'mdi-cloud-check' : 'mdi-cloud-clock-outline'" :color="isSynced ? 'success' : 'warning'" size="16" class="mr-1"></v-icon>
+          <span class="text-caption font-weight-medium" :style="isSynced ? 'color: #10B981;' : 'color: #F59E0B;'" style="font-size: 0.72rem !important;">
+            {{ isSynced ? 'Synced' : 'Unsynced' }}
+          </span>
+        </div>
+      </template>
+    </v-tooltip>
+
     <!-- Architecture Info Dialog Button -->
     <v-btn
       icon="mdi-information-outline"
@@ -250,7 +261,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { useUiStore } from '@/stores/ui.store'
 
 const uiStore = useUiStore()
@@ -260,6 +271,8 @@ const props = defineProps<{
   replicationStatus?: 'synced' | 'unsynced'
   online?: boolean
 }>()
+
+const isSynced = computed(() => props.online !== false && props.replicationStatus === 'synced')
 
 const emit = defineEmits<{
   (e: 'reset-demo'): void
